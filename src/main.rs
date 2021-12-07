@@ -7,13 +7,23 @@
 
 use core::fmt::Write as _;
 use core::panic::PanicInfo;
-use embedded_hal::digital::v2::OutputPin;
-use embedded_time::fixed_point::FixedPoint as _;
+use embedded_hal::digital::v2::{InputPin, OutputPin};
+use embedded_time::{
+    fixed_point::FixedPoint as _,
+    rate::Extensions as _
+};
 use rp2040_hal as hal;
-use rp2040_hal::{clocks::Clock as _, pac, pac::interrupt, sio::Sio, watchdog::Watchdog};
+use rp2040_hal::{
+    clocks::Clock as _,
+    gpio,
+    pac, pac::interrupt,
+    sio::Sio,
+    spi::Spi,
+    watchdog::Watchdog};
 use usb_device;
 use usb_device::bus::UsbBusAllocator;
 
+mod pico_wireless;
 mod usb_manager;
 
 use crate::usb_manager::UsbManager;
@@ -88,13 +98,23 @@ fn main() -> ! {
     let mut delay = cortex_m::delay::Delay::new(core.SYST, clocks.system_clock.freq().integer());
     let mut led_pin = pins.gpio25.into_push_pull_output();
 
+    let button_a = pico_wireless::ButtonA::new(pins.gpio12);
+
+    let _ = pins.gpio7.into_mode::<gpio::FunctionSpi>();
+    let _ = pins.gpio16.into_mode::<gpio::FunctionSpi>();
+    let _ = pins.gpio18.into_mode::<gpio::FunctionSpi>();
+    let _ = pins.gpio19.into_mode::<gpio::FunctionSpi>();
+
+    let spi = Spi::<_, _, 8>::new(pac.SPI0).init(
+        &mut pac.RESETS, 125_000_000u32.Hz(), 16_000_000u32.Hz(), &embedded_hal::spi::MODE_0);
+
     loop {
         led_pin.set_high().unwrap();
-        write!(usb, "On\n").unwrap();
+        writeln!(usb, "On {}", button_a.pressed()).ok();
         delay.delay_ms(500);
 
         led_pin.set_low().unwrap();
-        write!(usb, "Off\n").unwrap();
+        writeln!(usb, "Off {}", button_a.pressed()).ok();
         delay.delay_ms(500);
     }
 }
