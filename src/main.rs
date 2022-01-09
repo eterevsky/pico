@@ -8,18 +8,12 @@
 use core::fmt::Write as _;
 use core::panic::PanicInfo;
 use embedded_hal::digital::v2::{InputPin, OutputPin};
-use embedded_time::{
-    fixed_point::FixedPoint as _,
-    rate::Extensions as _
-};
+use embedded_time::{fixed_point::FixedPoint as _, rate::Extensions as _};
+use log::info;
 use rp2040_hal as hal;
 use rp2040_hal::{
-    clocks::Clock as _,
-    gpio,
-    pac, pac::interrupt,
-    sio::Sio,
-    spi::Spi,
-    watchdog::Watchdog};
+    clocks::Clock as _, gpio, pac, pac::interrupt, sio::Sio, spi::Spi, watchdog::Watchdog,
+};
 use usb_device;
 use usb_device::bus::UsbBusAllocator;
 
@@ -52,8 +46,30 @@ fn panic(panic_info: &PanicInfo) -> ! {
     loop {}
 }
 
+struct UsbLogger;
+
+impl log::Log for UsbLogger {
+    fn enabled(&self, metadata: &log::Metadata) -> bool {
+        metadata.level() <= log::Level::Info
+    }
+
+    fn log(&self, record: &log::Record) {
+        if let Some(usb) = unsafe { USB_MANAGER.as_mut() } {
+            writeln!(usb, "{}", record.args()).unwrap();
+        }
+    }
+
+    fn flush(&self) {}
+}
+
+static LOGGER: UsbLogger = UsbLogger;
+
 // External high-speed crystal on the pico board is 12Mhz
 pub const XOSC_CRYSTAL_FREQ: u32 = 12_000_000;
+
+const ESP_LED_R: u8 = 25;
+const ESP_LED_G: u8 = 26;
+const ESP_LED_B: u8 = 27;
 
 #[cortex_m_rt::entry]
 fn main() -> ! {
@@ -88,6 +104,12 @@ fn main() -> ! {
         USB_MANAGER.as_mut().unwrap()
     };
 
+    unsafe {
+        log::set_logger_racy(&LOGGER)
+            .map(|()| log::set_max_level(log::LevelFilter::Info))
+            .unwrap();
+    }
+
     let pins = hal::gpio::Pins::new(
         pac.IO_BANK0,
         pac.PADS_BANK0,
@@ -100,20 +122,34 @@ fn main() -> ! {
 
     let button_a = pico_wireless::ButtonA::new(pins.gpio12);
 
-    let _ = pins.gpio7.into_mode::<gpio::FunctionSpi>();
+    delay.delay_ms(1500);
+
+    info!("Creating pins for SPI");
+
+    let cs = pins.gpio7.into_push_pull_output();
+    let ack = pins.gpio10.into_pull_down_input();
     let _ = pins.gpio16.into_mode::<gpio::FunctionSpi>();
     let _ = pins.gpio18.into_mode::<gpio::FunctionSpi>();
     let _ = pins.gpio19.into_mode::<gpio::FunctionSpi>();
 
-    let spi = Spi::<_, _, 8>::new(pac.SPI0).init(
-        &mut pac.RESETS, 125_000_000u32.Hz(), 16_000_000u32.Hz(), &embedded_hal::spi::MODE_0);
+    info!("Creating ESP32 inteface");
+
+    let mut esp32 = pico_wireless::Esp32::new(pac.RESETS, pac.SPI0, cs, ack);
+
+    info!("Calling analog_write");
+
+    esp32.analog_write(ESP_LED_G, 0).unwrap();
 
     loop {
         led_pin.set_high().unwrap();
+        // esp32.analog_write(ESP_LED_R, 255).unwrap();
+        // esp32.analog_write(ESP_LED_B, 0).unwrap();
         writeln!(usb, "On {}", button_a.pressed()).ok();
         delay.delay_ms(500);
 
         led_pin.set_low().unwrap();
+        // esp32.analog_write(ESP_LED_R, 0).unwrap();
+        // esp32.analog_write(ESP_LED_B, 255).unwrap();
         writeln!(usb, "Off {}", button_a.pressed()).ok();
         delay.delay_ms(500);
     }
