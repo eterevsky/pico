@@ -17,6 +17,7 @@ use rp2040_hal::{
 use usb_device;
 use usb_device::bus::UsbBusAllocator;
 
+mod blocking_spi;
 mod pico_wireless;
 mod usb_manager;
 
@@ -122,11 +123,17 @@ fn main() -> ! {
 
     let button_a = pico_wireless::ButtonA::new(pins.gpio12);
 
-    delay.delay_ms(1500);
+    for i in 0..10 {
+        info!("{}", i * 100);
+        delay.delay_ms(100);
+    }
 
     info!("Creating pins for SPI");
 
     let cs = pins.gpio7.into_push_pull_output();
+    let gpio2 = pins.gpio2.into_push_pull_output();
+    let resetn = pins.gpio11.into_push_pull_output();
+    // let ack = pins.gpio10.into_bus_keep_input();
     let ack = pins.gpio10.into_pull_down_input();
     let _ = pins.gpio16.into_mode::<gpio::FunctionSpi>();
     let _ = pins.gpio18.into_mode::<gpio::FunctionSpi>();
@@ -134,7 +141,7 @@ fn main() -> ! {
 
     info!("Creating ESP32 inteface");
 
-    let mut esp32 = pico_wireless::Esp32::new(pac.RESETS, pac.SPI0, cs, ack);
+    let mut esp32 = pico_wireless::Esp32::new(&mut pac.RESETS, pac.SPI0, cs, ack, gpio2, resetn, &mut delay);
 
     info!("Calling analog_write");
 

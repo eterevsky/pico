@@ -1,3 +1,6 @@
 * [Writing an OS in Rust](https://os.phil-opp.com/)
 * [The Embedded Rust Book](https://docs.rust-embedded.org/book/intro/index.html)
-* [Drivers for WiFi](https://github.com/pimoroni/pimoroni-pico/tree/main/drivers/esp32spi)
+* [Drivers for WiFi in C++](https://github.com/pimoroni/pimoroni-pico/tree/main/drivers/esp32spi)
+* rp2040_hal: [docs](https://docs.rs/rp2040-hal/), [repo](https://github.com/rp-rs/rp-hal)
+* [SDI driver in Pico SDK](https://github.com/raspberrypi/pico-sdk/blob/master/src/rp2_common/hardware_spi/spi.c)
+* [ARM PrimeCell Synchronous Serial Port (PL022) Technical Reference Manual](https://developer.arm.com/documentation/ddi0194/latest)
