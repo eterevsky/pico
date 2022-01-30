@@ -12,9 +12,8 @@ use rp2040_hal::{
         Pin,
     },
     pac, spi,
-    spi::Spi,
 };
-use crate::blocking_spi::SpiBlocking;
+use crate::blocking_spi::Spi;
 
 const START_CMD: u8 = 0xE0;
 const END_CMD: u8 = 0xEE;
@@ -58,7 +57,7 @@ impl core::fmt::Display for Esp32Error {
 }
 
 pub struct Esp32 {
-    spi: SpiBlocking<pac::SPI0>,
+    spi: Spi<pac::SPI0>,
     cs: Pin<Gpio7, pin::PushPullOutput>,
     gpio2: Pin<Gpio2, pin::PushPullOutput>,
     // ack: Pin<Gpio10, pin::BusKeepInput>,
@@ -70,13 +69,13 @@ impl Esp32 {
         resets: &mut pac::RESETS,
         spi_device: pac::SPI0,
         mut cs: Pin<Gpio7, pin::PushPullOutput>,
-        // ack: Pin<Gpio10, pin::BusKeepInput>,
         ack: Pin<Gpio10, pin::PullDownInput>,
         mut gpio2: Pin<Gpio2, pin::PushPullOutput>,
         mut resetn: Pin<Gpio11, pin::PushPullOutput>,
         delay: &mut cortex_m::delay::Delay,
     ) -> Self {
-        let mut spi = SpiBlocking::new(resets, spi_device);
+        let mut spi = Spi::new(spi_device);
+        spi.init(resets, 8_000_000);
         spi.set_dummy_data(0xFF);
 
         cs.set_high().unwrap();
