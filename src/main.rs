@@ -7,12 +7,12 @@
 
 use core::fmt::Write as _;
 use core::panic::PanicInfo;
-use embedded_hal::digital::v2::{InputPin, OutputPin};
-use embedded_time::{fixed_point::FixedPoint as _, rate::Extensions as _};
+use embedded_hal::digital::v2::OutputPin;
+use embedded_time::fixed_point::FixedPoint as _;
 use log::info;
 use rp2040_hal as hal;
 use rp2040_hal::{
-    clocks::Clock as _, gpio, pac, pac::interrupt, sio::Sio, spi::Spi, watchdog::Watchdog,
+    clocks::Clock as _, gpio, pac, pac::interrupt, sio::Sio, watchdog::Watchdog,
 };
 use usb_device;
 use usb_device::bus::UsbBusAllocator;
@@ -133,7 +133,6 @@ fn main() -> ! {
     let cs = pins.gpio7.into_push_pull_output();
     let gpio2 = pins.gpio2.into_push_pull_output();
     let resetn = pins.gpio11.into_push_pull_output();
-    // let ack = pins.gpio10.into_bus_keep_input();
     let ack = pins.gpio10.into_pull_down_input();
     let _ = pins.gpio16.into_mode::<gpio::FunctionSpi>();
     let _ = pins.gpio18.into_mode::<gpio::FunctionSpi>();
@@ -149,14 +148,14 @@ fn main() -> ! {
 
     loop {
         led_pin.set_high().unwrap();
-        // esp32.analog_write(ESP_LED_R, 255).unwrap();
-        // esp32.analog_write(ESP_LED_B, 0).unwrap();
+        esp32.analog_write(ESP_LED_R, 255).unwrap();
+        esp32.analog_write(ESP_LED_B, 0).unwrap();
         writeln!(usb, "On {}", button_a.pressed()).ok();
         delay.delay_ms(500);
 
         led_pin.set_low().unwrap();
-        // esp32.analog_write(ESP_LED_R, 0).unwrap();
-        // esp32.analog_write(ESP_LED_B, 255).unwrap();
+        esp32.analog_write(ESP_LED_R, 0).unwrap();
+        esp32.analog_write(ESP_LED_B, 255).unwrap();
         writeln!(usb, "Off {}", button_a.pressed()).ok();
         delay.delay_ms(500);
     }

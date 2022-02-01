@@ -1,7 +1,8 @@
 use core::ops::Deref;
 use rp2040_hal::pac;
+use log::info;
 
-trait Resettable {
+pub trait Resettable {
     fn reset(&self, resets: &mut pac::RESETS);
     fn unreset(&self, resets: &mut pac::RESETS);
 }
@@ -12,7 +13,7 @@ impl Resettable for pac::SPI0 {
     }
 
     fn unreset(&self, resets: &mut pac::RESETS) {
-        resets.reset.modify(|_, w| w.spi0().set_bit());
+        resets.reset.modify(|_, w| w.spi0().clear_bit());
         while resets.reset_done.read().spi0().bit_is_clear() {}
     }
 }
@@ -23,7 +24,7 @@ impl Resettable for pac::SPI1 {
     }
 
     fn unreset(&self, resets: &mut pac::RESETS) {
-        resets.reset.modify(|_, w| w.spi1().set_bit());
+        resets.reset.modify(|_, w| w.spi1().clear_bit());
         while resets.reset_done.read().spi1().bit_is_clear() {}
     }
 }
@@ -34,7 +35,7 @@ impl SpiDevice for pac::SPI0 {}
 impl SpiDevice for pac::SPI1 {}
 
 #[derive(Clone, Copy)]
-enum Mode {
+pub enum Mode {
     Mode0,
     Mode1,
     Mode2,
@@ -75,10 +76,14 @@ impl<D: SpiDevice> Spi<D> {
     }
 
     pub fn init(&mut self, resets: &mut pac::RESETS, baudrate: u32) -> u32 {
+        info!("device.reset");
         self.device.reset(resets);
+        info!("device.unreset");
         self.device.unreset(resets);
 
+        info!("set_baudrate");
         let actual_baudrate = self.set_baudrate(baudrate);
+        info!("actual baudrate: {actual_baudrate}");
 
         // Use internal enum for format.
         self.set_format(8, Mode::Mode0);
@@ -99,15 +104,16 @@ impl<D: SpiDevice> Spi<D> {
     }
 
     fn set_baudrate(&mut self, baudrate: u32) -> u32 {
-        let PERI_FREQUENCY: u32 = 125_000_000;
+        // Default peripheral clock frequency (same as system clock).
+        let freq: u32 = 125_000_000;
 
-        let prescale = if 3 * 256 * baudrate as u64 > PERI_FREQUENCY as u64 {
+        let prescale = if 3 * 256 * baudrate as u64 > freq as u64 {
             2
         } else {
-            2 * (PERI_FREQUENCY / (512 * baudrate))
+            2 * (freq / (512 * baudrate))
         };
 
-        let postdiv = (PERI_FREQUENCY / (baudrate * prescale)) as u8;
+        let postdiv = (freq / (baudrate * prescale)) as u8;
         let prescale = prescale as u8;
 
         self.device
@@ -117,7 +123,7 @@ impl<D: SpiDevice> Spi<D> {
             .sspcr0
             .modify(|_, w| unsafe { w.scr().bits(postdiv) });
 
-        PERI_FREQUENCY as u32 / (prescale as u32) * (1 + postdiv as u32)
+        freq as u32 / ((prescale as u32) * (1 + postdiv as u32))
     }
 
     fn set_format(&mut self, data_bits: u8, mode: Mode) {
