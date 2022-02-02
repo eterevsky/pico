@@ -75,14 +75,14 @@ impl<D: SpiDevice> Spi<D> {
         }
     }
 
-    pub fn init(&mut self, resets: &mut pac::RESETS, baudrate: u32) -> u32 {
+    pub fn init(&mut self, resets: &mut pac::RESETS, baudrate: u32, system_clock_freq: u32) -> u32 {
         info!("device.reset");
         self.device.reset(resets);
         info!("device.unreset");
         self.device.unreset(resets);
 
         info!("set_baudrate");
-        let actual_baudrate = self.set_baudrate(baudrate);
+        let actual_baudrate = self.set_baudrate(baudrate, system_clock_freq);
         info!("actual baudrate: {actual_baudrate}");
 
         // Use internal enum for format.
@@ -103,17 +103,14 @@ impl<D: SpiDevice> Spi<D> {
         self.dummy_data = byte;
     }
 
-    fn set_baudrate(&mut self, baudrate: u32) -> u32 {
-        // Default peripheral clock frequency (same as system clock).
-        let freq: u32 = 125_000_000;
-
-        let prescale = if 3 * 256 * baudrate as u64 > freq as u64 {
+    fn set_baudrate(&mut self, baudrate: u32, system_clock_freq: u32) -> u32 {
+        let prescale = if 3 * 256 * baudrate as u64 > system_clock_freq as u64 {
             2
         } else {
-            2 * (freq / (512 * baudrate))
+            2 * (system_clock_freq / (512 * baudrate))
         };
 
-        let postdiv = (freq / (baudrate * prescale)) as u8;
+        let postdiv = (system_clock_freq / (baudrate * prescale)) as u8;
         let prescale = prescale as u8;
 
         self.device
@@ -123,7 +120,7 @@ impl<D: SpiDevice> Spi<D> {
             .sspcr0
             .modify(|_, w| unsafe { w.scr().bits(postdiv) });
 
-        freq as u32 / ((prescale as u32) * (1 + postdiv as u32))
+        system_clock_freq as u32 / ((prescale as u32) * (1 + postdiv as u32))
     }
 
     fn set_format(&mut self, data_bits: u8, mode: Mode) {
@@ -163,6 +160,7 @@ impl<D: SpiDevice> Spi<D> {
     }
 
     pub fn write(&mut self, data: &[u8]) {
+        info!("write({data:?})");
         for byte in data.iter() {
             self.write_byte(*byte);
         }

@@ -73,9 +73,10 @@ impl Esp32 {
         mut gpio2: Pin<Gpio2, pin::PushPullOutput>,
         mut resetn: Pin<Gpio11, pin::PushPullOutput>,
         delay: &mut cortex_m::delay::Delay,
+        system_clock_freq: u32,
     ) -> Self {
         let mut spi = Spi::new(spi_device);
-        spi.init(resets, 8_000_000);
+        spi.init(resets, 8_000_000, system_clock_freq);
         spi.set_dummy_data(0xFF);
 
         cs.set_high().unwrap();
@@ -111,17 +112,22 @@ impl Esp32 {
     }
 
     fn wait_for_esp_select(&mut self) {
+        info!("wait_for_esp_ready");
         self.wait_for_esp_ready();
+        info!("esp_select");
         self.esp_select();
+        info!("wait_for_esp_ack");
         self.wait_for_esp_ack();
     }
 
     fn read_and_check_byte(&mut self, expected: u8) -> Result<(), Esp32Error> {
+        info!("read_and_check_byte({expected})");
         let b = self.spi.read_byte();
         if b == expected { Ok(()) } else { Err(Esp32Error::UnexpectedByte)}
     }
 
     fn wait_for_byte(&mut self, expected: u8) -> Result<(), Esp32Error> {
+        info!("wait_for_bytes({expected})");
         for _ in 0..BYTE_TIMEOUT {
             let b = self.spi.read_byte();
             if b == expected {
@@ -134,6 +140,7 @@ impl Esp32 {
     }
 
     fn send_cmd(&mut self, cmd: u8, num_param: u8) {
+        info!("send_param({cmd}, {num_param})");
         if num_param == 0 {
             self.spi.write(
                 &[START_CMD, cmd & !REPLY_FLAG, 0, END_CMD]);
@@ -145,36 +152,32 @@ impl Esp32 {
 
     fn send_param(&mut self, param: &[u8], last_param: bool) {
         assert!(param.len() < 256);
+        info!("send_param({param:?}, {last_param})");
         self.spi.write_byte(param.len() as u8);
         self.spi.write(param);
         self.spi.write_byte(END_CMD);
     }
 
     fn wait_response_cmd1(&mut self, cmd: u8, ) -> Result<u8, Esp32Error> {
-        info!("wait_for_byte {:02X}", START_CMD);
         self.wait_for_byte(START_CMD)?;
-        info!("read_and_check_byte {:02X}", cmd | REPLY_FLAG);
         self.read_and_check_byte(cmd | REPLY_FLAG)?;
-        info!("read_and_check_byte {}", 1);
         self.read_and_check_byte(1)?;  // num_param
-        info!("read_and_check_byte {}", 1);
         self.read_and_check_byte(1)?;  // param_len_out
-        info!("read");
+        info!("read_byte");
         Ok(self.spi.read_byte())
     }
 
     pub fn analog_write(&mut self, pin: u8, value: u8) -> Result<(), Esp32Error> {
+        info!("analog_write({pin}, {value})");
+
         info!("wait_for_esp_select");
         self.wait_for_esp_select();
 
-        info!("send_cmd {}", SET_ANALOG_WRITE);
         self.send_cmd(SET_ANALOG_WRITE, 2);
-        info!("send_param {pin}");
         self.send_param(&[pin], false);
-        info!("send_param {value}");
         self.send_param(&[value], true);
 
-        info!("read");
+        info!("read_byte");
         self.spi.read_byte();
 
         info!("esp_deselect");

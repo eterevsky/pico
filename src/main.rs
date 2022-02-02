@@ -5,17 +5,16 @@
 #![no_std]
 #![no_main]
 
-use core::fmt::Write as _;
 use core::panic::PanicInfo;
 use embedded_hal::digital::v2::OutputPin;
 use embedded_time::fixed_point::FixedPoint as _;
 use log::info;
 use rp2040_hal as hal;
-use rp2040_hal::{
-    clocks::Clock as _, gpio, pac, pac::interrupt, sio::Sio, watchdog::Watchdog,
-};
+use rp2040_hal::{clocks::Clock as _, gpio, pac, pac::interrupt, sio::Sio, watchdog::Watchdog};
 use usb_device;
 use usb_device::bus::UsbBusAllocator;
+
+use core::fmt::Write;
 
 mod blocking_spi;
 mod pico_wireless;
@@ -30,6 +29,12 @@ pub static BOOT2: [u8; 256] = rp2040_boot2::BOOT_LOADER_W25Q080;
 static mut USB_BUS: Option<UsbBusAllocator<hal::usb::UsbBus>> = None;
 static mut USB_MANAGER: Option<UsbManager> = None;
 
+fn get_usb_manager<'a>() -> &'a UsbManager {
+    unsafe {
+        USB_MANAGER.as_ref().unwrap()
+    }
+}
+
 #[allow(non_snake_case)]
 #[interrupt]
 unsafe fn USBCTRL_IRQ() {
@@ -42,7 +47,7 @@ unsafe fn USBCTRL_IRQ() {
 #[panic_handler]
 fn panic(panic_info: &PanicInfo) -> ! {
     if let Some(usb) = unsafe { USB_MANAGER.as_mut() } {
-        writeln!(usb, "{}", panic_info).ok();
+        write!(usb, "{}\n", panic_info).ok();
     }
     loop {}
 }
@@ -75,9 +80,7 @@ const ESP_LED_B: u8 = 27;
 #[cortex_m_rt::entry]
 fn main() -> ! {
     let mut pac = pac::Peripherals::take().unwrap();
-    let core = pac::CorePeripherals::take().unwrap();
     let mut watchdog = Watchdog::new(pac.WATCHDOG);
-    let sio = Sio::new(pac.SIO);
 
     let clocks = hal::clocks::init_clocks_and_plls(
         XOSC_CRYSTAL_FREQ,
@@ -91,7 +94,7 @@ fn main() -> ! {
     .ok()
     .unwrap();
 
-    let usb = unsafe {
+    unsafe {
         USB_BUS = Some(UsbBusAllocator::new(hal::usb::UsbBus::new(
             pac.USBCTRL_REGS,
             pac.USBCTRL_DPRAM,
@@ -102,7 +105,6 @@ fn main() -> ! {
         USB_MANAGER = Some(UsbManager::new(USB_BUS.as_ref().unwrap()));
         // Enable the USB interrupt
         pac::NVIC::unmask(hal::pac::Interrupt::USBCTRL_IRQ);
-        USB_MANAGER.as_mut().unwrap()
     };
 
     unsafe {
@@ -111,24 +113,33 @@ fn main() -> ! {
             .unwrap();
     }
 
+    let core = pac::CorePeripherals::take().unwrap();
+    let mut delay = cortex_m::delay::Delay::new(core.SYST, clocks.system_clock.freq().integer());
+
+    {
+        // Wait until USB console is ready
+        let mut ms: u32 = 0;
+        while !get_usb_manager().ready() {
+            ms += 10;
+            delay.delay_ms(10);
+        }
+
+        info!("USB console initialized after {ms} ms.");
+    }
+
+    info!("System clock frequency: {} MHz", clocks.system_clock.freq().integer() as f32 / 1E6);
+    info!("Initializing pins");
+
+    let sio = Sio::new(pac.SIO);
     let pins = hal::gpio::Pins::new(
         pac.IO_BANK0,
         pac.PADS_BANK0,
         sio.gpio_bank0,
         &mut pac.RESETS,
     );
-
-    let mut delay = cortex_m::delay::Delay::new(core.SYST, clocks.system_clock.freq().integer());
     let mut led_pin = pins.gpio25.into_push_pull_output();
 
     let button_a = pico_wireless::ButtonA::new(pins.gpio12);
-
-    for i in 0..10 {
-        info!("{}", i * 100);
-        delay.delay_ms(100);
-    }
-
-    info!("Creating pins for SPI");
 
     let cs = pins.gpio7.into_push_pull_output();
     let gpio2 = pins.gpio2.into_push_pull_output();
@@ -140,9 +151,16 @@ fn main() -> ! {
 
     info!("Creating ESP32 inteface");
 
-    let mut esp32 = pico_wireless::Esp32::new(&mut pac.RESETS, pac.SPI0, cs, ack, gpio2, resetn, &mut delay);
-
-    info!("Calling analog_write");
+    let mut esp32 = pico_wireless::Esp32::new(
+        &mut pac.RESETS,
+        pac.SPI0,
+        cs,
+        ack,
+        gpio2,
+        resetn,
+        &mut delay,
+        clocks.system_clock.freq().integer(),
+    );
 
     esp32.analog_write(ESP_LED_G, 0).unwrap();
 
@@ -150,13 +168,13 @@ fn main() -> ! {
         led_pin.set_high().unwrap();
         esp32.analog_write(ESP_LED_R, 255).unwrap();
         esp32.analog_write(ESP_LED_B, 0).unwrap();
-        writeln!(usb, "On {}", button_a.pressed()).ok();
+        info!("On {}", button_a.pressed());
         delay.delay_ms(500);
 
         led_pin.set_low().unwrap();
         esp32.analog_write(ESP_LED_R, 0).unwrap();
         esp32.analog_write(ESP_LED_B, 255).unwrap();
-        writeln!(usb, "Off {}", button_a.pressed()).ok();
+        info!("Off {}", button_a.pressed());
         delay.delay_ms(500);
     }
 }
