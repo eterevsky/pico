@@ -1,3 +1,5 @@
+use core::cell::RefCell;
+use cortex_m::interrupt::{CriticalSection, Mutex};
 use rp2040_hal::usb::UsbBus;
 use usb_device::{
     bus::UsbBusAllocator,
@@ -64,3 +66,16 @@ impl core::fmt::Write for UsbManager {
     }
 }
 
+static USB_MANAGER: cortex_m::interrupt::Mutex<RefCell<Option<UsbManager>>> = Mutex::new(RefCell::new(None));
+
+// Execute a closure with &mut UsbManager. The closure will be executed in interrupt-free context
+// and must not block.
+fn borrow_manager<F, R>(f: F) -> R
+where F: FnOnce(&mut Option<UsbManager>) -> R {
+    cortex_m::interrupt::free(|cs| {
+        let mut manager = USB_MANAGER.borrow(cs).borrow_mut();
+        f(&mut *manager)
+    })
+}
+
+pub struct UsbConsole;
