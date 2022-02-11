@@ -7,15 +7,13 @@ use usb_device::{
 };
 use usbd_serial::{SerialPort, UsbError};
 
-
 pub struct UsbManager {
     device: UsbDevice<'static, UsbBus>,
     serial: SerialPort<'static, UsbBus>,
 }
 
 impl UsbManager {
-    pub fn new(usb_bus: &'static UsbBusAllocator<UsbBus>,
-) -> Self {
+    pub fn new(usb_bus: &'static UsbBusAllocator<UsbBus>) -> Self {
         let serial = usbd_serial::SerialPort::new(usb_bus);
 
         let device = UsbDeviceBuilder::new(usb_bus, UsbVidPid(0x2E8A, 0x000a))
@@ -41,7 +39,7 @@ impl UsbManager {
 impl core::fmt::Write for UsbManager {
     fn write_str(&mut self, s: &str) -> core::fmt::Result {
         if !self.ready() {
-            return Result::Err(core::fmt::Error)
+            return Result::Err(core::fmt::Error);
         }
 
         let mut bytes_to_send = s.as_bytes();
@@ -66,16 +64,24 @@ impl core::fmt::Write for UsbManager {
     }
 }
 
-static USB_MANAGER: cortex_m::interrupt::Mutex<RefCell<Option<UsbManager>>> = Mutex::new(RefCell::new(None));
+static USB_BUS: RefCell<Option<UsbBusAllocator<UsbBus>>> = RefCell::new(None);
+static USB_MANAGER: cortex_m::interrupt::Mutex<RefCell<Option<UsbManager>>> =
+    Mutex::new(RefCell::new(None));
 
 // Execute a closure with &mut UsbManager. The closure will be executed in interrupt-free context
 // and must not block.
 fn borrow_manager<F, R>(f: F) -> R
-where F: FnOnce(&mut Option<UsbManager>) -> R {
+where
+    F: FnOnce(&mut Option<UsbManager>) -> R,
+{
     cortex_m::interrupt::free(|cs| {
         let mut manager = USB_MANAGER.borrow(cs).borrow_mut();
         f(&mut *manager)
     })
+}
+
+pub fn init_usb_console() {
+
 }
 
 pub struct UsbConsole;
