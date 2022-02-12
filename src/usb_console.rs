@@ -70,15 +70,15 @@ pub fn init_usb_manager(
     usb_clock: hal::clocks::UsbClock,
     resets: &mut hal::pac::RESETS,
 ) {
-    unsafe{
-        USB_BUS = Some(UsbBusAllocator::new(UsbBus::new(
-            usbctrl_regs,
-            usbctrl_dpram,
-            usb_clock,
-            /*force_vbus_detect_bit*/ true,
-            resets,
-        )));
-    }
+    let usb_bus = UsbBusAllocator::new(UsbBus::new(
+        usbctrl_regs,
+        usbctrl_dpram,
+        usb_clock,
+        /*force_vbus_detect_bit*/ true,
+        resets,
+    ));
+
+    unsafe { USB_BUS = Some(usb_bus); }
 
     {
         let manager = UsbManager::new(unsafe { USB_BUS.as_ref().unwrap() } );

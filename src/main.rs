@@ -5,13 +5,13 @@
 #![no_std]
 #![no_main]
 
+use core::fmt::Write as _;
 use core::panic::PanicInfo;
 use embedded_hal::digital::v2::OutputPin;
 use embedded_time::fixed_point::FixedPoint as _;
 use log::info;
 use rp2040_hal as hal;
 use rp2040_hal::{clocks::Clock as _, gpio, pac, sio::Sio, watchdog::Watchdog};
-use core::fmt::Write as _;
 
 mod blocking_spi;
 mod pico_wireless;
@@ -52,7 +52,12 @@ fn main() -> ! {
     .ok()
     .unwrap();
 
-    usb_console::init_usb_manager(pac.USBCTRL_REGS, pac.USBCTRL_DPRAM, clocks.usb_clock, &mut pac.RESETS);
+    usb_console::init_usb_manager(
+        pac.USBCTRL_REGS,
+        pac.USBCTRL_DPRAM,
+        clocks.usb_clock,
+        &mut pac.RESETS,
+    );
 
     let console = usb_console::get_console();
 
@@ -76,7 +81,10 @@ fn main() -> ! {
         info!("USB console initialized after {ms} ms.");
     }
 
-    info!("System clock frequency: {} MHz", clocks.system_clock.freq().integer() as f32 / 1E6);
+    info!(
+        "System clock frequency: {} MHz",
+        clocks.system_clock.freq().integer() as f32 / 1E6
+    );
     info!("Initializing pins");
 
     let sio = Sio::new(pac.SIO);
