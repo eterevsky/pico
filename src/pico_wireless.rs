@@ -1,8 +1,8 @@
 use embedded_hal::{
     digital::v2::{InputPin as _, OutputPin as _},
-    spi::FullDuplex
+    // spi::FullDuplex
 };
-use embedded_time::{fixed_point::FixedPoint as _, rate::Extensions as _};
+// use embedded_time::{fixed_point::FixedPoint as _, rate::Extensions as _};
 use log::info;
 use rp2040_hal::{
     gpio::{
@@ -11,7 +11,7 @@ use rp2040_hal::{
         pin::PinId,
         Pin,
     },
-    pac, spi,
+    pac,
 };
 use crate::blocking_spi::Spi;
 

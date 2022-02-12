@@ -10,65 +10,23 @@ use embedded_hal::digital::v2::OutputPin;
 use embedded_time::fixed_point::FixedPoint as _;
 use log::info;
 use rp2040_hal as hal;
-use rp2040_hal::{clocks::Clock as _, gpio, pac, pac::interrupt, sio::Sio, watchdog::Watchdog};
-use usb_device;
-use usb_device::bus::UsbBusAllocator;
-
-use core::fmt::Write;
+use rp2040_hal::{clocks::Clock as _, gpio, pac, sio::Sio, watchdog::Watchdog};
+use core::fmt::Write as _;
 
 mod blocking_spi;
 mod pico_wireless;
-mod usb_manager;
-
-use crate::usb_manager::UsbManager;
+mod usb_console;
 
 #[link_section = ".boot2"]
 #[used]
 pub static BOOT2: [u8; 256] = rp2040_boot2::BOOT_LOADER_W25Q080;
 
-static mut USB_BUS: Option<UsbBusAllocator<hal::usb::UsbBus>> = None;
-static mut USB_MANAGER: Option<UsbManager> = None;
-
-fn get_usb_manager<'a>() -> &'a UsbManager {
-    unsafe {
-        USB_MANAGER.as_ref().unwrap()
-    }
-}
-
-#[allow(non_snake_case)]
-#[interrupt]
-unsafe fn USBCTRL_IRQ() {
-    match USB_MANAGER.as_mut() {
-        Some(manager) => manager.interrupt(),
-        None => (),
-    };
-}
-
 #[panic_handler]
 fn panic(panic_info: &PanicInfo) -> ! {
-    if let Some(usb) = unsafe { USB_MANAGER.as_mut() } {
-        write!(usb, "{}\n", panic_info).ok();
-    }
+    let mut usb = *usb_console::get_console();
+    write!(&mut usb, "{}\n", panic_info).ok();
     loop {}
 }
-
-struct UsbLogger;
-
-impl log::Log for UsbLogger {
-    fn enabled(&self, metadata: &log::Metadata) -> bool {
-        metadata.level() <= log::Level::Info
-    }
-
-    fn log(&self, record: &log::Record) {
-        if let Some(usb) = unsafe { USB_MANAGER.as_mut() } {
-            writeln!(usb, "{}", record.args()).unwrap();
-        }
-    }
-
-    fn flush(&self) {}
-}
-
-static LOGGER: UsbLogger = UsbLogger;
 
 // External high-speed crystal on the pico board is 12Mhz
 pub const XOSC_CRYSTAL_FREQ: u32 = 12_000_000;
@@ -94,21 +52,12 @@ fn main() -> ! {
     .ok()
     .unwrap();
 
-    unsafe {
-        USB_BUS = Some(UsbBusAllocator::new(hal::usb::UsbBus::new(
-            pac.USBCTRL_REGS,
-            pac.USBCTRL_DPRAM,
-            clocks.usb_clock,
-            true,
-            &mut pac.RESETS,
-        )));
-        USB_MANAGER = Some(UsbManager::new(USB_BUS.as_ref().unwrap()));
-        // Enable the USB interrupt
-        pac::NVIC::unmask(hal::pac::Interrupt::USBCTRL_IRQ);
-    };
+    usb_console::init_usb_manager(pac.USBCTRL_REGS, pac.USBCTRL_DPRAM, clocks.usb_clock, &mut pac.RESETS);
+
+    let console = usb_console::get_console();
 
     unsafe {
-        log::set_logger_racy(&LOGGER)
+        log::set_logger_racy(console)
             .map(|()| log::set_max_level(log::LevelFilter::Info))
             .unwrap();
     }
@@ -119,7 +68,7 @@ fn main() -> ! {
     {
         // Wait until USB console is ready
         let mut ms: u32 = 0;
-        while !get_usb_manager().ready() {
+        while !console.ready() {
             ms += 10;
             delay.delay_ms(10);
         }
