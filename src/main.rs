@@ -70,21 +70,23 @@ fn main() -> ! {
     let core = pac::CorePeripherals::take().unwrap();
     let mut delay = cortex_m::delay::Delay::new(core.SYST, clocks.system_clock.freq().integer());
 
-    {
-        // Wait until USB console is ready
-        let mut ms: u32 = 0;
-        while !console.ready() {
-            ms += 10;
-            delay.delay_ms(10);
-        }
+    delay.delay_ms(1000);
 
-        info!("USB console initialized after {ms} ms.");
-    }
+    // {
+    //     // Wait until USB console is ready
+    //     let mut ms: u32 = 0;
+    //     while !console.ready() {
+    //         ms += 10;
+    //         delay.delay_ms(10);
+    //     }
 
-    info!(
-        "System clock frequency: {} MHz",
-        clocks.system_clock.freq().integer() as f32 / 1E6
-    );
+    //     info!("USB console initialized after {ms} ms.");
+    // }
+
+    // info!(
+    //     "System clock frequency: {} MHz",
+    //     clocks.system_clock.freq().integer() as f32 / 1E6
+    // );
     info!("Initializing pins");
 
     let sio = Sio::new(pac.SIO);
@@ -119,18 +121,18 @@ fn main() -> ! {
         clocks.system_clock.freq().integer(),
     );
 
-    esp32.analog_write(ESP_LED_G, 0).unwrap();
+    // esp32.analog_write(ESP_LED_G, 0).unwrap();
 
     loop {
         led_pin.set_high().unwrap();
-        esp32.analog_write(ESP_LED_R, 255).unwrap();
-        esp32.analog_write(ESP_LED_B, 0).unwrap();
+        // esp32.analog_write(ESP_LED_R, 255).unwrap();
+        // esp32.analog_write(ESP_LED_B, 0).unwrap();
         info!("On {}", button_a.pressed());
         delay.delay_ms(500);
 
         led_pin.set_low().unwrap();
-        esp32.analog_write(ESP_LED_R, 0).unwrap();
-        esp32.analog_write(ESP_LED_B, 255).unwrap();
+        // esp32.analog_write(ESP_LED_R, 0).unwrap();
+        // esp32.analog_write(ESP_LED_B, 255).unwrap();
         info!("Off {}", button_a.pressed());
         delay.delay_ms(500);
     }

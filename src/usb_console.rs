@@ -8,8 +8,6 @@ use usb_device::{
 };
 use usbd_serial::{SerialPort, UsbError};
 
-static mut USB_BUS: Option<UsbBusAllocator<UsbBus>> = None;
-
 struct UsbManager {
     device: UsbDevice<'static, UsbBus>,
     serial: SerialPort<'static, UsbBus>,
@@ -39,6 +37,7 @@ impl UsbManager {
     }
 }
 
+static mut USB_BUS: Option<UsbBusAllocator<UsbBus>> = None;
 static USB_MANAGER: cortex_m::interrupt::Mutex<RefCell<Option<UsbManager>>> =
     cortex_m::interrupt::Mutex::new(RefCell::new(None));
 
@@ -79,6 +78,7 @@ pub fn init_usb_manager(
     ));
 
     unsafe { USB_BUS = Some(usb_bus); }
+    // unsafe { USB_MANAGER = Some(UsbManager::new(USB_BUS.as_ref().unwrap())); }
 
     {
         let manager = UsbManager::new(unsafe { USB_BUS.as_ref().unwrap() } );
@@ -86,6 +86,9 @@ pub fn init_usb_manager(
             opt_manager.insert(manager);
         })
     }
+
+    // Enable the USB interrupt
+    unsafe { hal::pac::NVIC::unmask(hal::pac::Interrupt::USBCTRL_IRQ); }
 }
 
 #[derive(Clone, Copy)]
@@ -117,9 +120,9 @@ impl UsbConsole {
 
 impl core::fmt::Write for UsbConsole {
     fn write_str(&mut self, s: &str) -> core::fmt::Result {
-        if !self.ready() {
-            return Result::Err(core::fmt::Error);
-        }
+        // if !self.ready() {
+        //     return Result::Err(core::fmt::Error);
+        // }
 
         let mut bytes_to_send = s.as_bytes();
 
