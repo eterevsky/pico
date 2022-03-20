@@ -1,5 +1,6 @@
 [workspace]
 
 members = [
-    "pico-wireless"
+    "pico-usb-console",
+    "pico-wireless",
 ]

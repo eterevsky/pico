@@ -1,3 +1,5 @@
+#![no_std]
+
 use core::cell::RefCell;
 use core::fmt::Write as _;
 use rp2040_hal as hal;
@@ -14,10 +16,10 @@ struct UsbManager {
 }
 
 impl UsbManager {
-    fn new(usb_bus: &'static UsbBusAllocator<UsbBus>) -> Self {
-        let serial = usbd_serial::SerialPort::new(usb_bus);
+    fn new(alloc: &'static UsbBusAllocator<UsbBus>) -> Self {
+        let serial = usbd_serial::SerialPort::new(alloc);
 
-        let device = UsbDeviceBuilder::new(usb_bus, UsbVidPid(0x2E8A, 0x000a))
+        let device = UsbDeviceBuilder::new(alloc, UsbVidPid(0x2E8A, 0x000a))
             .manufacturer("Raspberry Pi")
             .product("Pico")
             .serial_number("TEST")

@@ -15,7 +15,6 @@ use rp2040_hal::{clocks::Clock as _, gpio, pac, sio::Sio, watchdog::Watchdog};
 
 mod blocking_spi;
 mod pico_wireless;
-mod usb_console;
 
 #[link_section = ".boot2"]
 #[used]
@@ -23,7 +22,7 @@ pub static BOOT2: [u8; 256] = rp2040_boot2::BOOT_LOADER_W25Q080;
 
 #[panic_handler]
 fn panic(panic_info: &PanicInfo) -> ! {
-    let mut usb = *usb_console::get_console();
+    let mut usb = *pico_usb_console::get_console();
     write!(&mut usb, "{}\n", panic_info).ok();
     loop {}
 }
@@ -52,14 +51,14 @@ fn main() -> ! {
     .ok()
     .unwrap();
 
-    usb_console::init_usb_manager(
+    pico_usb_console::init_usb_manager(
         pac.USBCTRL_REGS,
         pac.USBCTRL_DPRAM,
         clocks.usb_clock,
         &mut pac.RESETS,
     );
 
-    let console = usb_console::get_console();
+    let console = pico_usb_console::get_console();
 
     unsafe {
         log::set_logger_racy(console)
