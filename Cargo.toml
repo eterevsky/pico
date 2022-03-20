@@ -1,16 +1,5 @@
-[package]
-name = "pico-wireless"
-version = "0.1.0"
-edition = "2021"
+[workspace]
 
-[dependencies]
-cortex-m = "0.7.3"
-cortex-m-rt = "0.7.0"
-embedded-hal = "0.2.6"
-embedded-time = "0.12.0"
-log = "0.4"
-rp2040-boot2 = "0.2"
-rp2040-hal = { version = "0.3", features = ["rt"] }
-rp2040-pac = "0.3"
-usb-device = "0.2.8"
-usbd-serial = "0.1.1"
+members = [
+    "pico-wireless"
+]
