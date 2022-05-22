@@ -118,18 +118,18 @@ fn main() -> ! {
         clocks.system_clock.freq().integer(),
     );
 
-    // esp32.analog_write(ESP_LED_G, 0).unwrap();
+    esp32.analog_write(ESP_LED_G, 0).unwrap();
 
     loop {
         led_pin.set_high().unwrap();
-        // esp32.analog_write(ESP_LED_R, 255).unwrap();
-        // esp32.analog_write(ESP_LED_B, 0).unwrap();
+        esp32.analog_write(ESP_LED_R, 255).unwrap();
+        esp32.analog_write(ESP_LED_B, 0).unwrap();
         info!("On {}", button_a.pressed());
         delay.delay_ms(500);
 
         led_pin.set_low().unwrap();
-        // esp32.analog_write(ESP_LED_R, 0).unwrap();
-        // esp32.analog_write(ESP_LED_B, 255).unwrap();
+        esp32.analog_write(ESP_LED_R, 0).unwrap();
+        esp32.analog_write(ESP_LED_B, 255).unwrap();
         info!("Off {}", button_a.pressed());
         delay.delay_ms(500);
     }

@@ -22,7 +22,7 @@ const ERR_CMD: u8 = 0xEF;
 const REPLY_FLAG: u8 = 1 << 7;
 
 const SET_ANALOG_WRITE: u8 = 0x52;
-const BYTE_TIMEOUT: u32 = 1000;
+const BYTE_TIMEOUT: u32 = 5000;
 
 pub struct ButtonA {
     pin: Pin<pin::bank0::Gpio12, pin::PullUpInput>,
@@ -62,6 +62,7 @@ pub struct Esp32 {
     gpio2: Pin<Gpio2, pin::PushPullOutput>,
     // ack: Pin<Gpio10, pin::BusKeepInput>,
     ack: Pin<Gpio10, pin::PullDownInput>,
+    command_length: u32,
 }
 
 impl Esp32 {
@@ -90,7 +91,7 @@ impl Esp32 {
         resetn.set_high().unwrap();
         delay.delay_ms(1750);
 
-        Esp32 { spi, cs, ack, gpio2 }
+        Esp32 { spi, cs, ack, gpio2, command_length: 0 }
     }
 
     fn esp_select(&mut self) {
@@ -107,27 +108,23 @@ impl Esp32 {
     }
 
     fn wait_for_esp_ack(&self) {
-        while self.ack.is_low().unwrap() {
-        }
+        while self.ack.is_low().unwrap() { }
     }
 
     fn wait_for_esp_select(&mut self) {
-        info!("wait_for_esp_ready");
         self.wait_for_esp_ready();
-        info!("esp_select");
         self.esp_select();
-        info!("wait_for_esp_ack");
         self.wait_for_esp_ack();
     }
 
     fn read_and_check_byte(&mut self, expected: u8) -> Result<(), Esp32Error> {
-        info!("read_and_check_byte({expected})");
+        // info!("read_and_check_byte({expected})");
         let b = self.spi.read_byte();
         if b == expected { Ok(()) } else { Err(Esp32Error::UnexpectedByte)}
     }
 
     fn wait_for_byte(&mut self, expected: u8) -> Result<(), Esp32Error> {
-        info!("wait_for_bytes({expected})");
+        // info!("wait_for_byte({expected})");
         for _ in 0..BYTE_TIMEOUT {
             let b = self.spi.read_byte();
             if b == expected {
@@ -140,22 +137,31 @@ impl Esp32 {
     }
 
     fn send_cmd(&mut self, cmd: u8, num_param: u8) {
-        info!("send_param({cmd}, {num_param})");
-        if num_param == 0 {
-            self.spi.write(
-                &[START_CMD, cmd & !REPLY_FLAG, 0, END_CMD]);
-            } else {
-            self.spi.write(
-                &[START_CMD, cmd & !REPLY_FLAG, num_param]);
-        }
+        // info!("send_cmd({cmd}, {num_param})");
+        self.spi.write(&[START_CMD, cmd & !REPLY_FLAG, num_param]);
+        self.command_length += 3;
     }
 
-    fn send_param(&mut self, param: &[u8], last_param: bool) {
+    fn send_param(&mut self, param: &[u8]) {
         assert!(param.len() < 256);
-        info!("send_param({param:?}, {last_param})");
+        // info!("send_param({param:?})");
         self.spi.write_byte(param.len() as u8);
         self.spi.write(param);
+        self.command_length += param.len() as u32 + 1;
+    }
+
+    fn end_cmd(&mut self) {
+        let command_length = self.command_length;
+        // info!("end_cmd {command_length}");
         self.spi.write_byte(END_CMD);
+        self.command_length += 1;
+
+        while self.command_length % 4 != 0 {
+            self.spi.read_byte();
+            self.command_length += 1;
+        }
+
+        self.command_length = 0;
     }
 
     fn wait_response_cmd1(&mut self, cmd: u8, ) -> Result<u8, Esp32Error> {
@@ -163,30 +169,33 @@ impl Esp32 {
         self.read_and_check_byte(cmd | REPLY_FLAG)?;
         self.read_and_check_byte(1)?;  // num_param
         self.read_and_check_byte(1)?;  // param_len_out
-        info!("read_byte");
-        Ok(self.spi.read_byte())
+        let error_code = self.spi.read_byte();  // param_out
+        self.read_and_check_byte(END_CMD)?;
+        Ok(error_code)
     }
 
     pub fn analog_write(&mut self, pin: u8, value: u8) -> Result<(), Esp32Error> {
-        info!("analog_write({pin}, {value})");
+        // info!("analog_write({pin}, {value})");
 
-        info!("wait_for_esp_select");
         self.wait_for_esp_select();
 
         self.send_cmd(SET_ANALOG_WRITE, 2);
-        self.send_param(&[pin], false);
-        self.send_param(&[value], true);
+        self.send_param(&[pin]);
+        self.send_param(&[value]);
 
-        info!("read_byte");
-        self.spi.read_byte();
+        self.end_cmd();
 
-        info!("esp_deselect");
+        // info!("esp_deselect");
         self.esp_deselect();
-        info!("wait_for_sp_select");
+        // info!("wait_for_esp_select");
         self.wait_for_esp_select();
 
-        info!("wait_responses_cmd1 {}", SET_ANALOG_WRITE);
+        // info!("wait_responses_cmd1 {}", SET_ANALOG_WRITE);
         let error = self.wait_response_cmd1(SET_ANALOG_WRITE)?;
+
+        // info!("esp_deselect");
+        self.esp_deselect();
+
         if error == 1 {
             Ok(())
         } else {

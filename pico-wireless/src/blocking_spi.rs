@@ -142,11 +142,30 @@ impl<D: SpiDevice> Spi<D> {
         self.device.sspsr.read().rne().bit_is_set()
     }
 
+    fn _is_busy(&self) -> bool {
+        self.device.sspsr.read().bsy().bit_is_set()
+    }
+
     // Internal. Doesn't check that the device is writable.
     fn _write(&self, data: u8) {
+        while !self._is_writable() {}
         self.device
             .sspdr
             .write(|w| unsafe { w.data().bits(data as u16) });
+    }
+
+    fn _write_and_drain(&self, data: u8) {
+        self._write(data);
+
+        while self._is_readable() {
+            self.device.sspdr.read();
+        }
+
+        while self._is_busy() {}
+
+        while self._is_readable() {
+            self.device.sspdr.read();
+        }
     }
 
     // Internal. Doesn't check that the device is writable.
@@ -155,20 +174,20 @@ impl<D: SpiDevice> Spi<D> {
     }
 
     pub fn write_byte(&mut self, byte: u8) {
-        while !self._is_writable() {}
-        self._write(byte);
+        self._write_and_drain(byte);
     }
 
     pub fn write(&mut self, data: &[u8]) {
-        info!("write({data:?})");
+        while !self._is_writable() {}
         for byte in data.iter() {
             self.write_byte(*byte);
         }
     }
 
     pub fn read_byte(&mut self) -> u8 {
-        self.write_byte(self.dummy_data);
+        self._write(self.dummy_data);
         while !self._is_readable() {}
-        self._read()
+        let b = self._read();
+        b
     }
 }
