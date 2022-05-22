@@ -69,23 +69,21 @@ fn main() -> ! {
     let core = pac::CorePeripherals::take().unwrap();
     let mut delay = cortex_m::delay::Delay::new(core.SYST, clocks.system_clock.freq().integer());
 
-    delay.delay_ms(1000);
+    {
+        // Wait until USB console is ready
+        let mut ms: u32 = 0;
+        while !console.ready() {
+            ms += 10;
+            delay.delay_ms(10);
+        }
 
-    // {
-    //     // Wait until USB console is ready
-    //     let mut ms: u32 = 0;
-    //     while !console.ready() {
-    //         ms += 10;
-    //         delay.delay_ms(10);
-    //     }
+        info!("USB console initialized after {ms} ms.");
+    }
 
-    //     info!("USB console initialized after {ms} ms.");
-    // }
-
-    // info!(
-    //     "System clock frequency: {} MHz",
-    //     clocks.system_clock.freq().integer() as f32 / 1E6
-    // );
+    info!(
+        "System clock frequency: {} MHz",
+        clocks.system_clock.freq().integer() as f32 / 1E6
+    );
     info!("Initializing pins");
 
     let sio = Sio::new(pac.SIO);
