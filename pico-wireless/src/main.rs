@@ -5,8 +5,6 @@
 #![no_std]
 #![no_main]
 
-use core::fmt::Write as _;
-use core::panic::PanicInfo;
 use embedded_hal::digital::v2::OutputPin;
 use embedded_time::fixed_point::FixedPoint as _;
 use log::info;
@@ -30,6 +28,7 @@ const ESP_LED_B: u8 = 27;
 #[cortex_m_rt::entry]
 fn main() -> ! {
     let mut pac = pac::Peripherals::take().unwrap();
+    let core = pac::CorePeripherals::take().unwrap();
     let mut watchdog = Watchdog::new(pac.WATCHDOG);
 
     let clocks = hal::clocks::init_clocks_and_plls(
@@ -59,7 +58,6 @@ fn main() -> ! {
             .unwrap();
     }
 
-    let core = pac::CorePeripherals::take().unwrap();
     let mut delay = cortex_m::delay::Delay::new(core.SYST, clocks.system_clock.freq().integer());
 
     {
@@ -69,8 +67,8 @@ fn main() -> ! {
     }
 
     info!(
-        "System clock frequency: {} MHz",
-        clocks.system_clock.freq().integer() as f32 / 1E6
+        "System clock frequency: {} KHz",
+        clocks.system_clock.freq().integer() / 1000
     );
     info!("Initializing pins");
 
@@ -110,14 +108,14 @@ fn main() -> ! {
 
     loop {
         led_pin.set_high().unwrap();
-        // esp32.analog_write(ESP_LED_R, 255).unwrap();
-        // esp32.analog_write(ESP_LED_B, 0).unwrap();
+        esp32.analog_write(ESP_LED_R, 255).unwrap();
+        esp32.analog_write(ESP_LED_B, 0).unwrap();
         info!("On {}", button_a.pressed());
         delay.delay_ms(500);
 
         led_pin.set_low().unwrap();
-        // esp32.analog_write(ESP_LED_R, 0).unwrap();
-        // esp32.analog_write(ESP_LED_B, 255).unwrap();
+        esp32.analog_write(ESP_LED_R, 0).unwrap();
+        esp32.analog_write(ESP_LED_B, 255).unwrap();
         info!("Off {}", button_a.pressed());
         delay.delay_ms(500);
     }
