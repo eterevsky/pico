@@ -20,13 +20,6 @@ mod pico_wireless;
 #[used]
 pub static BOOT2: [u8; 256] = rp2040_boot2::BOOT_LOADER_W25Q080;
 
-#[panic_handler]
-fn panic(panic_info: &PanicInfo) -> ! {
-    let mut usb = *pico_usb_console::get_console();
-    write!(&mut usb, "{}\n", panic_info).ok();
-    loop {}
-}
-
 // External high-speed crystal on the pico board is 12Mhz
 pub const XOSC_CRYSTAL_FREQ: u32 = 12_000_000;
 
@@ -69,16 +62,9 @@ fn main() -> ! {
     let core = pac::CorePeripherals::take().unwrap();
     let mut delay = cortex_m::delay::Delay::new(core.SYST, clocks.system_clock.freq().integer());
 
-    delay.delay_ms(1000);
-
     {
         // Wait until USB console is ready
-        let mut ms: u32 = 0;
-        while !console.ready() {
-            ms += 10;
-            delay.delay_ms(10);
-        }
-
+        let ms = pico_usb_console::wait_until_ready(&mut delay);
         info!("USB console initialized after {ms} ms.");
     }
 
@@ -107,20 +93,20 @@ fn main() -> ! {
     let _ = pins.gpio18.into_mode::<gpio::FunctionSpi>();
     let _ = pins.gpio19.into_mode::<gpio::FunctionSpi>();
 
-    // info!("Creating ESP32 inteface");
+    info!("Creating ESP32 inteface");
 
-    // let mut esp32 = pico_wireless::Esp32::new(
-    //     &mut pac.RESETS,
-    //     pac.SPI0,
-    //     cs,
-    //     ack,
-    //     gpio2,
-    //     resetn,
-    //     &mut delay,
-    //     clocks.system_clock.freq().integer(),
-    // );
+    let mut esp32 = pico_wireless::Esp32::new(
+        &mut pac.RESETS,
+        pac.SPI0,
+        cs,
+        ack,
+        gpio2,
+        resetn,
+        &mut delay,
+        clocks.system_clock.freq().integer(),
+    );
 
-    // esp32.analog_write(ESP_LED_G, 0).unwrap();
+    esp32.analog_write(ESP_LED_G, 0).unwrap();
 
     loop {
         led_pin.set_high().unwrap();

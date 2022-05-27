@@ -2,6 +2,7 @@
 
 use core::cell::RefCell;
 use core::fmt::Write as _;
+use core::panic::PanicInfo;
 use rp2040_hal as hal;
 use rp2040_hal::{pac::interrupt, usb::UsbBus};
 use usb_device::{
@@ -186,7 +187,24 @@ impl log::Log for UsbConsole {
         writeln!(&mut copy, "{}", record.args()).unwrap();
     }
 
-    fn flush(&self) {}
+    fn flush(&self) {
+        loop {
+            match borrow_manager(|manager| {
+                if let Some(m) = manager {
+                    m.serial.flush()
+                } else {
+                    Err(usbd_serial::UsbError::InvalidState)
+                }
+            }) {
+                Ok(()) => return,
+
+                // Output buffer hasn't been fully flushed. Retry.
+                Err(UsbError::WouldBlock) => {},
+
+                Err(e) => panic!("Error while flushing USB: {e:?}"),
+            }
+        }
+    }
 }
 
 static USB_CONSOLE: UsbConsole = UsbConsole;
@@ -194,3 +212,12 @@ static USB_CONSOLE: UsbConsole = UsbConsole;
 pub fn get_console() -> &'static UsbConsole {
     &USB_CONSOLE
 }
+
+#[cfg(feature = "panic")]
+#[panic_handler]
+fn panic(panic_info: &PanicInfo) -> ! {
+    let mut console = UsbConsole;
+    write!(&mut console, "{}\n", panic_info).ok();
+    loop {}
+}
+

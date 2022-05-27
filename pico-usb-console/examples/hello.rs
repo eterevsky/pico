@@ -3,7 +3,6 @@
 #![no_main]
 
 use core::fmt::Write as _;
-use core::panic::PanicInfo;
 use embedded_time::fixed_point::FixedPoint as _;
 use rp2040_hal as hal;
 use rp2040_hal::{clocks::Clock as _, pac, watchdog::Watchdog};
@@ -11,13 +10,6 @@ use rp2040_hal::{clocks::Clock as _, pac, watchdog::Watchdog};
 #[link_section = ".boot2"]
 #[used]
 pub static BOOT2: [u8; 256] = rp2040_boot2::BOOT_LOADER_W25Q080;
-
-#[panic_handler]
-fn panic(panic_info: &PanicInfo) -> ! {
-    let mut usb = *pico_usb_console::get_console();
-    write!(&mut usb, "{}\n", panic_info).ok();
-    loop {}
-}
 
 // External high-speed crystal on the pico board is 12Mhz
 pub const XOSC_CRYSTAL_FREQ: u32 = 12_000_000;
@@ -50,15 +42,14 @@ fn main() -> ! {
     let mut usb = *pico_usb_console::get_console();
 
     let mut delay = cortex_m::delay::Delay::new(core.SYST, clocks.system_clock.freq().integer());
-
-    let latency = pico_usb_console::wait_until_ready(&mut delay);
-    writeln!(usb, "Hello (latency: {} ms)", latency).unwrap();
+    let ms = pico_usb_console::wait_until_ready(&mut delay);
+    writeln!(usb, "Hello (latency: {ms} ms)").unwrap();
 
     let mut i = 0;
 
     loop {
         delay.delay_ms(1000);
         i += 1;
-        writeln!(usb, "{}", i).unwrap();
+        writeln!(usb, "{i}").unwrap();
     }
 }
