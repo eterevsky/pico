@@ -75,17 +75,17 @@ pub fn init_usb_manager(
         usbctrl_regs,
         usbctrl_dpram,
         usb_clock,
-        /*force_vbus_detect_bit*/ true,
+        true,
         resets,
     ));
 
     unsafe { USB_BUS = Some(usb_bus); }
-    // unsafe { USB_MANAGER = Some(UsbManager::new(USB_BUS.as_ref().unwrap())); }
 
     {
         let manager = UsbManager::new(unsafe { USB_BUS.as_ref().unwrap() } );
         borrow_manager(|opt_manager| {
-            opt_manager.insert(manager);
+            // Ignoring the returned reference.
+            let _ = opt_manager.insert(manager);
         })
     }
 
@@ -93,26 +93,54 @@ pub fn init_usb_manager(
     unsafe { hal::pac::NVIC::unmask(hal::pac::Interrupt::USBCTRL_IRQ); }
 }
 
+pub fn usb_manager_initialized() -> bool {
+    borrow_manager(|manager| manager.is_some())
+}
+
+fn usb_manager_ready() -> bool {
+    borrow_manager(|manager| {
+        if let Some(m) = manager {
+            m.ready()
+        } else {
+            false
+        }
+    })
+}
+
+/// Waits until USB console is ready.
+/// Returns the number of millisecond for which the function needed to block.
+pub fn wait_until_ready(delay: &mut cortex_m::delay::Delay) -> u32 {
+    let mut latency_ms = 0;
+    while !usb_manager_ready() {
+        delay.delay_ms(10);
+        latency_ms += 10;
+    }
+    latency_ms
+}
+
+/// Waits until USB console is initialized.
+/// Returns the number of millisecond for which the function needed to block.
+pub fn wait_until_initialized(delay: &mut cortex_m::delay::Delay) -> u32 {
+    let mut latency_ms = 0;
+    while !usb_manager_initialized() {
+        delay.delay_ms(10);
+        latency_ms += 10;
+    }
+    latency_ms
+}
+
 #[derive(Clone, Copy)]
 pub struct UsbConsole;
 
 impl UsbConsole {
-    pub fn ready(&self) -> bool {
-        borrow_manager(|manager| {
-            if let Some(m) = manager {
-                m.ready()
-            } else {
-                false
-            }
-        })
-    }
+    pub fn ready(&self) -> bool { usb_manager_ready() }
 
     // Write bytes to the USB serial in UsbManager.
     // Returns the number of bytes that were actually written (added to the output buffer).
-    fn write(&self, bytes: &[u8]) -> usbd_serial::Result<usize> {
+    fn write(&self, data: &[u8]) -> usbd_serial::Result<usize> {
         borrow_manager(|manager| {
             if let Some(m) = manager {
-                m.serial.write(bytes)
+                m.serial.write(data)
             } else {
                 Err(usbd_serial::UsbError::InvalidState)
             }

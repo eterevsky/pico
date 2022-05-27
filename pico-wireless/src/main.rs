@@ -69,6 +69,8 @@ fn main() -> ! {
     let core = pac::CorePeripherals::take().unwrap();
     let mut delay = cortex_m::delay::Delay::new(core.SYST, clocks.system_clock.freq().integer());
 
+    delay.delay_ms(1000);
+
     {
         // Wait until USB console is ready
         let mut ms: u32 = 0;
@@ -105,31 +107,31 @@ fn main() -> ! {
     let _ = pins.gpio18.into_mode::<gpio::FunctionSpi>();
     let _ = pins.gpio19.into_mode::<gpio::FunctionSpi>();
 
-    info!("Creating ESP32 inteface");
+    // info!("Creating ESP32 inteface");
 
-    let mut esp32 = pico_wireless::Esp32::new(
-        &mut pac.RESETS,
-        pac.SPI0,
-        cs,
-        ack,
-        gpio2,
-        resetn,
-        &mut delay,
-        clocks.system_clock.freq().integer(),
-    );
+    // let mut esp32 = pico_wireless::Esp32::new(
+    //     &mut pac.RESETS,
+    //     pac.SPI0,
+    //     cs,
+    //     ack,
+    //     gpio2,
+    //     resetn,
+    //     &mut delay,
+    //     clocks.system_clock.freq().integer(),
+    // );
 
-    esp32.analog_write(ESP_LED_G, 0).unwrap();
+    // esp32.analog_write(ESP_LED_G, 0).unwrap();
 
     loop {
         led_pin.set_high().unwrap();
-        esp32.analog_write(ESP_LED_R, 255).unwrap();
-        esp32.analog_write(ESP_LED_B, 0).unwrap();
+        // esp32.analog_write(ESP_LED_R, 255).unwrap();
+        // esp32.analog_write(ESP_LED_B, 0).unwrap();
         info!("On {}", button_a.pressed());
         delay.delay_ms(500);
 
         led_pin.set_low().unwrap();
-        esp32.analog_write(ESP_LED_R, 0).unwrap();
-        esp32.analog_write(ESP_LED_B, 255).unwrap();
+        // esp32.analog_write(ESP_LED_R, 0).unwrap();
+        // esp32.analog_write(ESP_LED_B, 255).unwrap();
         info!("Off {}", button_a.pressed());
         delay.delay_ms(500);
     }
