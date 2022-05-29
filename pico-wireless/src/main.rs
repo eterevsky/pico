@@ -67,8 +67,8 @@ fn main() -> ! {
     }
 
     info!(
-        "System clock frequency: {} KHz",
-        clocks.system_clock.freq().integer() / 1000
+        "System clock frequency: {} MHz",
+        clocks.system_clock.freq().integer() as f32 / 1E6
     );
     info!("Initializing pins");
 

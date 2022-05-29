@@ -51,6 +51,11 @@ fn main() -> ! {
     let ms = pico_usb_console::wait_until_ready(&mut delay);
     info!("Hello (latency: {ms} ms)");
 
+    info!(
+        "System clock frequency: {} MHz",
+        clocks.system_clock.freq().integer() as f32 / 1E6
+    );
+
     let mut i = 0;
 
     loop {

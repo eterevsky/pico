@@ -21,6 +21,7 @@ const ERR_CMD: u8 = 0xEF;
 
 const REPLY_FLAG: u8 = 1 << 7;
 
+const SCAN_NETWORKS: u8 = 0x27;
 const SET_ANALOG_WRITE: u8 = 0x52;
 const BYTE_TIMEOUT: u32 = 5000;
 
