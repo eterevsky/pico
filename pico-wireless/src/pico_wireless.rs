@@ -18,11 +18,10 @@ use crate::blocking_spi::Spi;
 const START_CMD: u8 = 0xE0;
 const END_CMD: u8 = 0xEE;
 const ERR_CMD: u8 = 0xEF;
+const DUMMY_DATA: u8 = 0xFF;
 
 const REPLY_FLAG: u8 = 1 << 7;
 
-const SCAN_NETWORKS: u8 = 0x27;
-const SET_ANALOG_WRITE: u8 = 0x52;
 const BYTE_TIMEOUT: u32 = 5000;
 
 pub struct ButtonA {
@@ -55,6 +54,19 @@ impl core::fmt::Display for Esp32Error {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         write!(f, "{:?}", self)
     }
+}
+
+enum CmdResponseType {
+    Normal,
+    Cmd,
+    Data8,
+    Data16,
+}
+
+#[repr(u8)]
+enum Esp32Command {
+    ScanNetworks = 0x27,
+    SetAnalogWrite = 0x52,
 }
 
 pub struct Esp32 {
@@ -137,9 +149,9 @@ impl Esp32 {
         Err(Esp32Error::WaitForByteTimeout)
     }
 
-    fn send_cmd(&mut self, cmd: u8, num_param: u8) {
+    fn start_cmd(&mut self, cmd: Esp32Command, num_param: u8) {
         // info!("send_cmd({cmd}, {num_param})");
-        self.spi.write(&[START_CMD, cmd & !REPLY_FLAG, num_param]);
+        self.spi.write(&[START_CMD, (cmd as u8) & !REPLY_FLAG, num_param]);
         self.command_length += 3;
     }
 
@@ -165,14 +177,14 @@ impl Esp32 {
         self.command_length = 0;
     }
 
-    fn wait_response_cmd1(&mut self, cmd: u8, ) -> Result<u8, Esp32Error> {
+    fn wait_response_cmd1(&mut self, cmd: Esp32Command) -> Result<u8, Esp32Error> {
         self.wait_for_byte(START_CMD)?;
-        self.read_and_check_byte(cmd | REPLY_FLAG)?;
+        self.read_and_check_byte(cmd as u8 | REPLY_FLAG)?;
         self.read_and_check_byte(1)?;  // num_param
         self.read_and_check_byte(1)?;  // param_len_out
-        let error_code = self.spi.read_byte();  // param_out
+        let response = self.spi.read_byte();  // param_out
         self.read_and_check_byte(END_CMD)?;
-        Ok(error_code)
+        Ok(response)
     }
 
     pub fn analog_write(&mut self, pin: u8, value: u8) -> Result<(), Esp32Error> {
@@ -180,7 +192,7 @@ impl Esp32 {
 
         self.wait_for_esp_select();
 
-        self.send_cmd(SET_ANALOG_WRITE, 2);
+        self.start_cmd(Esp32Command::SetAnalogWrite, 2);
         self.send_param(&[pin]);
         self.send_param(&[value]);
 
@@ -192,7 +204,7 @@ impl Esp32 {
         self.wait_for_esp_select();
 
         // info!("wait_responses_cmd1 {}", SET_ANALOG_WRITE);
-        let error = self.wait_response_cmd1(SET_ANALOG_WRITE)?;
+        let error = self.wait_response_cmd1(Esp32Command::SetAnalogWrite)?;
 
         // info!("esp_deselect");
         self.esp_deselect();
@@ -202,5 +214,41 @@ impl Esp32 {
         } else {
             Err(Esp32Error::ErrorCode(error))
         }
+    }
+
+    pub fn scan_networks(&mut self, ssids: &mut [u8], offsets: &mut [usize]) -> Result<usize, Esp32Error> {
+        self.wait_for_esp_select();
+
+        self.start_cmd(Esp32Command::ScanNetworks, 0);
+
+        self.end_cmd();
+        self.esp_deselect();
+        self.wait_for_esp_select();
+
+        let mut offset = 0;
+
+        self.wait_for_byte(START_CMD)?;
+        self.read_and_check_byte(Esp32Command::ScanNetworks as u8 | REPLY_FLAG)?;
+        let num_params = self.spi.read_byte() as usize;
+        let mut saved_params = num_params;
+        let mut skipping_the_rest = false;
+
+        for index in 0..num_params as usize {
+            let param_len = self.spi.read_byte() as usize;
+
+            let end_offset = offset + param_len;
+            if !skipping_the_rest && index < offsets.len() - 1 && end_offset <= ssids.len() {
+                self.spi.read_bytes(&mut ssids[offset..end_offset]);
+                offsets[index] = offset;
+                offsets[index + 1] = end_offset;
+                offset = end_offset;
+                saved_params = index + 1;
+            } else {
+                skipping_the_rest = true;
+                self.spi.skip_bytes(param_len);
+            }
+        }
+
+        Ok(saved_params)
     }
 }

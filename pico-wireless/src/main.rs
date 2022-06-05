@@ -66,10 +66,10 @@ fn main() -> ! {
         info!("USB console initialized after {ms} ms.");
     }
 
-    info!(
-        "System clock frequency: {} MHz",
-        clocks.system_clock.freq().integer() as f32 / 1E6
-    );
+    {
+        let system_freq = clocks.system_clock.freq().integer() as f32 / 1E6;
+        info!("System clock frequency: {system_freq} MHz");
+    }
     info!("Initializing pins");
 
     let sio = Sio::new(pac.SIO);
@@ -106,6 +106,8 @@ fn main() -> ! {
 
     esp32.analog_write(ESP_LED_G, 0).unwrap();
 
+    show_networks(&mut esp32);
+
     loop {
         led_pin.set_high().unwrap();
         esp32.analog_write(ESP_LED_R, 255).unwrap();
@@ -118,5 +120,20 @@ fn main() -> ! {
         esp32.analog_write(ESP_LED_B, 255).unwrap();
         info!("Off {}", button_a.pressed());
         delay.delay_ms(500);
+    }
+}
+
+fn show_networks(esp32: &mut pico_wireless::Esp32) {
+    let mut data = [0; 256];
+    let mut offsets = [0; 16];
+
+    let n = esp32.scan_networks(&mut data, &mut offsets).unwrap();
+    info!("SSIDs: {n}");
+    info!("{:?}", &data[..16]);
+    info!("{:?}", &offsets[..16]);
+
+    for i in 0..n {
+        let ssid = core::str::from_utf8(&data[offsets[i]..offsets[i+1]]).unwrap();
+        info!("{ssid}");
     }
 }
