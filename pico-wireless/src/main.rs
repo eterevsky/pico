@@ -116,6 +116,9 @@ fn main() -> ! {
         info!("On {}", button_a.pressed());
         delay.delay_ms(500);
 
+        let status = esp32.get_conn_status().unwrap();
+        info!("status {status}");
+
         led_pin.set_low().unwrap();
         esp32.analog_write(ESP_LED_R, 0).unwrap();
         esp32.analog_write(ESP_LED_B, 255).unwrap();
@@ -140,4 +143,6 @@ fn show_networks(esp32: &mut pico_wireless::Esp32) {
     }
 
     info!("");
+
+    esp32.wifi_set_passphrase("", "").unwrap();
 }
