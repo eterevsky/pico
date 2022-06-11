@@ -134,6 +134,7 @@ fn show_networks(esp32: &mut pico_wireless::Esp32) {
 
     for i in 0..n {
         let ssid = core::str::from_utf8(&data[offsets[i]..offsets[i+1]]).unwrap();
-        info!("{ssid}");
+        let channel = esp32.get_channel(i as u8).unwrap();
+        info!("{ssid} Ch{channel}");
     }
 }

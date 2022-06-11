@@ -1,25 +1,21 @@
-# Blinking some LEDs on Raspberry Pi Pico
+# Controlling Pimoroni Pico Wireless
 
-A minimal Rust firmware for Raspberry Pi Pico that blinks the onboard LED and writes messages to USB serial. Based on [rp2040-project-template](https://github.com/rp-rs/rp2040-project-template).
+Establishes SPI communication with ESP32 on the Pico Wireless, tries to connect to the WiFi.
 
 ## Compatibility
 
-Tested with:
-
-* Raspberry Pi Pico
-* Pimoroni Pico LiPo
-* Arduino Nano RP2040 Connect (doesn't have a LED on the same port)
+Tested with Pimoroni Pico LiPo + Pico WiFi.
 
 and
 
 * Windows 10/11
-* macOS
+* macOS (elf2uf2-rs fails on binaries >128 KiB)
 
 ## Requirements
 
 ```
 rustup target install thumbv6m-none-eabi
-cargo install --locked elf2uf2-rs
+cargo install elf2uf2-rs
 ```
 
 ## Running

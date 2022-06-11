@@ -66,6 +66,10 @@ enum CmdResponseType {
 #[repr(u8)]
 enum Esp32Command {
     ScanNetworks = 0x27,
+    GetIdxRssi = 0x32,
+    GetIdxEnct = 0x33,
+    GetIdxBssid = 0x3c,
+    GetIdxChannel = 0x3d,
     SetAnalogWrite = 0x52,
 }
 
@@ -188,8 +192,6 @@ impl Esp32 {
     }
 
     pub fn analog_write(&mut self, pin: u8, value: u8) -> Result<(), Esp32Error> {
-        // info!("analog_write({pin}, {value})");
-
         self.wait_for_esp_select();
 
         self.start_cmd(Esp32Command::SetAnalogWrite, 2);
@@ -198,15 +200,11 @@ impl Esp32 {
 
         self.end_cmd();
 
-        // info!("esp_deselect");
         self.esp_deselect();
-        // info!("wait_for_esp_select");
         self.wait_for_esp_select();
 
-        // info!("wait_responses_cmd1 {}", SET_ANALOG_WRITE);
         let error = self.wait_response_cmd1(Esp32Command::SetAnalogWrite)?;
 
-        // info!("esp_deselect");
         self.esp_deselect();
 
         if error == 1 {
@@ -249,6 +247,25 @@ impl Esp32 {
             }
         }
 
+        self.esp_deselect();
+
         Ok(saved_params)
+    }
+
+    pub fn get_channel(&mut self, idx: u8) -> Result<u8, Esp32Error> {
+        self.wait_for_esp_select();
+
+        self.start_cmd(Esp32Command::GetIdxEnct, 1);
+        self.send_param(&[idx]);
+
+        self.end_cmd();
+        self.esp_deselect();
+        self.wait_for_esp_select();
+
+        let response = self.wait_response_cmd1(Esp32Command::GetIdxEnct);
+
+        self.esp_deselect();
+
+        response
     }
 }
