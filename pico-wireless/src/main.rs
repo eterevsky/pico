@@ -70,6 +70,7 @@ fn main() -> ! {
         let system_freq = clocks.system_clock.freq().integer() as f32 / 1E6;
         info!("System clock frequency: {system_freq} MHz");
     }
+
     info!("Initializing pins");
 
     let sio = Sio::new(pac.SIO);
@@ -128,13 +129,15 @@ fn show_networks(esp32: &mut pico_wireless::Esp32) {
     let mut offsets = [0; 16];
 
     let n = esp32.scan_networks(&mut data, &mut offsets).unwrap();
-    info!("SSIDs: {n}");
-    info!("{:?}", &data[..16]);
-    info!("{:?}", &offsets[..16]);
+    info!("SSIDs:");
 
     for i in 0..n {
         let ssid = core::str::from_utf8(&data[offsets[i]..offsets[i+1]]).unwrap();
         let channel = esp32.get_channel(i as u8).unwrap();
-        info!("{ssid} Ch{channel}");
+        let rssi = esp32.get_rssi(i as u8).unwrap();
+        let enc = esp32.get_encryption_type(i as u8).unwrap();
+        info!("{ssid} Ch{channel} RSSI: {rssi} {enc:?}");
     }
+
+    info!("");
 }

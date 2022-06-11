@@ -47,6 +47,7 @@ pub enum Esp32Error {
     WaitForByteTimeout,
     ErrCmd,
     UnexpectedByte,
+    IncorrectEncryptionType,
     ErrorCode(u8),
 }
 
@@ -71,6 +72,17 @@ enum Esp32Command {
     GetIdxBssid = 0x3c,
     GetIdxChannel = 0x3d,
     SetAnalogWrite = 0x52,
+}
+
+#[repr(u8)]
+#[derive(Debug, Clone, Copy)]
+pub enum EncryptionType {
+    Tkip = 2,
+    Ccmp = 4,
+    Wep = 5,
+    None = 7,
+    Auto = 8,
+    Unknown = 255,
 }
 
 pub struct Esp32 {
@@ -181,7 +193,7 @@ impl Esp32 {
         self.command_length = 0;
     }
 
-    fn wait_response_cmd1(&mut self, cmd: Esp32Command) -> Result<u8, Esp32Error> {
+    fn wait_response_cmd_u8(&mut self, cmd: Esp32Command) -> Result<u8, Esp32Error> {
         self.wait_for_byte(START_CMD)?;
         self.read_and_check_byte(cmd as u8 | REPLY_FLAG)?;
         self.read_and_check_byte(1)?;  // num_param
@@ -189,6 +201,17 @@ impl Esp32 {
         let response = self.spi.read_byte();  // param_out
         self.read_and_check_byte(END_CMD)?;
         Ok(response)
+    }
+
+    fn wait_response_cmd_i32(&mut self, cmd: Esp32Command) -> Result<i32, Esp32Error> {
+        self.wait_for_byte(START_CMD)?;
+        self.read_and_check_byte(cmd as u8 | REPLY_FLAG)?;
+        self.read_and_check_byte(1)?;  // num_param
+        self.read_and_check_byte(4)?;  // param_len_out
+        let mut response_bytes = [0; 4];
+        self.spi.read_bytes(&mut response_bytes);  // param_out
+        self.read_and_check_byte(END_CMD)?;
+        Ok(i32::from_ne_bytes(response_bytes))
     }
 
     pub fn analog_write(&mut self, pin: u8, value: u8) -> Result<(), Esp32Error> {
@@ -203,7 +226,7 @@ impl Esp32 {
         self.esp_deselect();
         self.wait_for_esp_select();
 
-        let error = self.wait_response_cmd1(Esp32Command::SetAnalogWrite)?;
+        let error = self.wait_response_cmd_u8(Esp32Command::SetAnalogWrite)?;
 
         self.esp_deselect();
 
@@ -248,11 +271,45 @@ impl Esp32 {
         }
 
         self.esp_deselect();
-
         Ok(saved_params)
+
     }
 
     pub fn get_channel(&mut self, idx: u8) -> Result<u8, Esp32Error> {
+        self.wait_for_esp_select();
+
+        self.start_cmd(Esp32Command::GetIdxChannel, 1);
+        self.send_param(&[idx]);
+
+        self.end_cmd();
+        self.esp_deselect();
+        self.wait_for_esp_select();
+
+        let response = self.wait_response_cmd_u8(Esp32Command::GetIdxChannel);
+
+        self.esp_deselect();
+
+        response
+    }
+
+    pub fn get_rssi(&mut self, idx: u8) -> Result<i32, Esp32Error> {
+        self.wait_for_esp_select();
+
+        self.start_cmd(Esp32Command::GetIdxRssi, 1);
+        self.send_param(&[idx]);
+
+        self.end_cmd();
+        self.esp_deselect();
+        self.wait_for_esp_select();
+
+        let response = self.wait_response_cmd_i32(Esp32Command::GetIdxRssi);
+
+        self.esp_deselect();
+
+        response
+    }
+
+    pub fn get_encryption_type(&mut self, idx: u8) -> Result<EncryptionType, Esp32Error> {
         self.wait_for_esp_select();
 
         self.start_cmd(Esp32Command::GetIdxEnct, 1);
@@ -262,10 +319,21 @@ impl Esp32 {
         self.esp_deselect();
         self.wait_for_esp_select();
 
-        let response = self.wait_response_cmd1(Esp32Command::GetIdxEnct);
+        let response = self.wait_response_cmd_u8(Esp32Command::GetIdxEnct)?;
 
         self.esp_deselect();
 
-        response
+        // It sucks, but looks like there is no way to directly convert a number to an enum with
+        // the same value numbers
+        match response {
+            2 => Ok(EncryptionType::Tkip),
+            4 => Ok(EncryptionType::Ccmp),
+            5 => Ok(EncryptionType::Wep),
+            7 => Ok(EncryptionType::None),
+            8 => Ok(EncryptionType::Auto),
+            255 => Ok(EncryptionType::Unknown),
+            _ => Err(Esp32Error::IncorrectEncryptionType)
+        }
     }
+
 }
