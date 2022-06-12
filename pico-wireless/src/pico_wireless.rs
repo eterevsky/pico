@@ -1,19 +1,17 @@
-use embedded_hal::{
-    digital::v2::{InputPin as _, OutputPin as _},
-    // spi::FullDuplex
-};
+use embedded_hal::digital::v2::{InputPin as _, OutputPin as _};
 // use embedded_time::{fixed_point::FixedPoint as _, rate::Extensions as _};
+use crate::blocking_spi::Spi;
+use crate::buffer::{Buffer, BufferError, GenBuffer};
 use log::info;
 use rp2040_hal::{
     gpio::{
         pin,
-        pin::bank0::{Gpio2, Gpio7, Gpio10, Gpio11, Gpio12},
+        pin::bank0::{Gpio10, Gpio11, Gpio12, Gpio2, Gpio7},
         pin::PinId,
         Pin,
     },
     pac,
 };
-use crate::blocking_spi::Spi;
 
 const START_CMD: u8 = 0xE0;
 const END_CMD: u8 = 0xEE;
@@ -47,8 +45,11 @@ pub enum Esp32Error {
     WaitForByteTimeout,
     ErrCmd,
     UnexpectedByte,
-    IncorrectEncryptionType,
+    UnexpectedEncryptionType(u8),
+    UnexpectedStatus(u8),
     ErrorCode(u8),
+    ResponseBufferError(BufferError),
+    WrongNumberOfResponseParams,
 }
 
 impl core::fmt::Display for Esp32Error {
@@ -88,6 +89,22 @@ pub enum EncryptionType {
     Unknown = 255,
 }
 
+#[repr(u8)]
+#[derive(Debug, Clone, Copy)]
+pub enum ConnectionStatus {
+    Idle = 0,
+    NoSsidAvail = 1,
+    ScanCompleted = 2,
+    Connected = 3,
+    ConnectFailed = 4,
+    ConnectionLost = 5,
+    Disconnected = 6,
+    ApListening = 7,
+    ApConnected = 8,
+    ApFailed = 9,
+    NoShield = 255,
+}
+
 pub struct Esp32 {
     spi: Spi<pac::SPI0>,
     cs: Pin<Gpio7, pin::PushPullOutput>,
@@ -120,9 +137,15 @@ impl Esp32 {
         resetn.set_low().unwrap();
         delay.delay_ms(10);
         resetn.set_high().unwrap();
-        delay.delay_ms(1750);
+        delay.delay_ms(750);
 
-        Esp32 { spi, cs, ack, gpio2, command_length: 0 }
+        Esp32 {
+            spi,
+            cs,
+            ack,
+            gpio2,
+            command_length: 0,
+        }
     }
 
     fn esp_select(&mut self) {
@@ -134,12 +157,11 @@ impl Esp32 {
     }
 
     fn wait_for_esp_ready(&self) {
-        while self.ack.is_high().unwrap() {
-        }
+        while self.ack.is_high().unwrap() {}
     }
 
     fn wait_for_esp_ack(&self) {
-        while self.ack.is_low().unwrap() { }
+        while self.ack.is_low().unwrap() {}
     }
 
     fn wait_for_esp_select(&mut self) {
@@ -151,7 +173,11 @@ impl Esp32 {
     fn read_and_check_byte(&mut self, expected: u8) -> Result<(), Esp32Error> {
         // info!("read_and_check_byte({expected})");
         let b = self.spi.read_byte();
-        if b == expected { Ok(()) } else { Err(Esp32Error::UnexpectedByte)}
+        if b == expected {
+            Ok(())
+        } else {
+            Err(Esp32Error::UnexpectedByte)
+        }
     }
 
     fn wait_for_byte(&mut self, expected: u8) -> Result<(), Esp32Error> {
@@ -159,9 +185,9 @@ impl Esp32 {
         for _ in 0..BYTE_TIMEOUT {
             let b = self.spi.read_byte();
             if b == expected {
-                return Ok(())
+                return Ok(());
             } else if b == ERR_CMD {
-                return Err(Esp32Error::ErrCmd)
+                return Err(Esp32Error::ErrCmd);
             }
         }
         Err(Esp32Error::WaitForByteTimeout)
@@ -170,21 +196,19 @@ impl Esp32 {
     fn start_cmd(&mut self, cmd: Esp32Command, num_param: u8) {
         self.wait_for_esp_select();
 
-        // info!("send_cmd({cmd}, {num_param})");
-        self.spi.write(&[START_CMD, (cmd as u8) & !REPLY_FLAG, num_param]);
+        self.spi
+            .write(&[START_CMD, (cmd as u8) & !REPLY_FLAG, num_param]);
         self.command_length += 3;
     }
 
     fn send_param(&mut self, param: &[u8]) {
         assert!(param.len() < 256);
-        // info!("send_param({param:?})");
         self.spi.write_byte(param.len() as u8);
         self.spi.write(param);
         self.command_length += param.len() as u32 + 1;
     }
 
     fn end_cmd(&mut self) {
-        // info!("end_cmd {command_length}");
         self.spi.write_byte(END_CMD);
         self.command_length += 1;
 
@@ -197,35 +221,59 @@ impl Esp32 {
         self.esp_deselect();
     }
 
-    fn wait_response_cmd_u8(&mut self, cmd: Esp32Command) -> Result<u8, Esp32Error> {
-        self.wait_for_esp_select();
-
+    fn get_response_impl(
+        &mut self,
+        cmd: Esp32Command,
+        buffer: &mut dyn GenBuffer,
+        expected_num_params: Option<usize>,
+    ) -> Result<(), Esp32Error> {
         self.wait_for_byte(START_CMD)?;
         self.read_and_check_byte(cmd as u8 | REPLY_FLAG)?;
-        self.read_and_check_byte(1)?;  // num_param
-        self.read_and_check_byte(1)?;  // param_len_out
-        let response = self.spi.read_byte();  // param_out
-        self.read_and_check_byte(END_CMD)?;
 
-        self.esp_deselect();
+        let num_params = self.spi.read_byte();
 
-        Ok(response)
+        if expected_num_params.is_some() && num_params as usize != expected_num_params.unwrap() {
+            return Err(Esp32Error::WrongNumberOfResponseParams);
+        }
+
+        for _ in 0..num_params {
+            let field_size = self.spi.read_byte();
+            let field = buffer
+                .add_field(field_size as usize)
+                .map_err(|e| Esp32Error::ResponseBufferError(e))?;
+            self.spi.read_bytes(field);
+        }
+
+        self.read_and_check_byte(END_CMD)
     }
 
-    fn wait_response_cmd_i32(&mut self, cmd: Esp32Command) -> Result<i32, Esp32Error> {
+    fn get_response(
+        &mut self,
+        cmd: Esp32Command,
+        buffer: &mut dyn GenBuffer,
+        expected_num_params: Option<usize>,
+    ) -> Result<(), Esp32Error> {
         self.wait_for_esp_select();
-
-        self.wait_for_byte(START_CMD)?;
-        self.read_and_check_byte(cmd as u8 | REPLY_FLAG)?;
-        self.read_and_check_byte(1)?;  // num_param
-        self.read_and_check_byte(4)?;  // param_len_out
-        let mut response_bytes = [0; 4];
-        self.spi.read_bytes(&mut response_bytes);  // param_out
-        self.read_and_check_byte(END_CMD)?;
-
+        let response = self.get_response_impl(cmd, buffer, expected_num_params);
         self.esp_deselect();
 
-        Ok(i32::from_ne_bytes(response_bytes))
+        response
+    }
+
+    fn get_response_u8(&mut self, cmd: Esp32Command) -> Result<u8, Esp32Error> {
+        let mut buffer: Buffer<1, 2> = Buffer::new();
+        self.get_response(cmd, &mut buffer, Some(1))?;
+        buffer
+            .field_as_u8(0)
+            .map_err(|e| Esp32Error::ResponseBufferError(e))
+    }
+
+    fn get_response_i32(&mut self, cmd: Esp32Command) -> Result<i32, Esp32Error> {
+        let mut buffer: Buffer<4, 2> = Buffer::new();
+        self.get_response(cmd, &mut buffer, Some(1))?;
+        buffer
+            .field_as_i32(0)
+            .map_err(|e| Esp32Error::ResponseBufferError(e))
     }
 
     pub fn analog_write(&mut self, pin: u8, value: u8) -> Result<(), Esp32Error> {
@@ -235,7 +283,7 @@ impl Esp32 {
 
         self.end_cmd();
 
-        let error = self.wait_response_cmd_u8(Esp32Command::SetAnalogWrite)?;
+        let error = self.get_response_u8(Esp32Command::SetAnalogWrite)?;
 
         if error == 1 {
             Ok(())
@@ -244,38 +292,11 @@ impl Esp32 {
         }
     }
 
-    pub fn scan_networks(&mut self, ssids: &mut [u8], offsets: &mut [usize]) -> Result<usize, Esp32Error> {
+    pub fn scan_networks(&mut self, ssids: &mut dyn GenBuffer) -> Result<(), Esp32Error> {
         self.start_cmd(Esp32Command::ScanNetworks, 0);
         self.end_cmd();
 
-        self.wait_for_esp_select();
-        let mut offset = 0;
-
-        self.wait_for_byte(START_CMD)?;
-        self.read_and_check_byte(Esp32Command::ScanNetworks as u8 | REPLY_FLAG)?;
-        let num_params = self.spi.read_byte() as usize;
-        let mut saved_params = num_params;
-        let mut skipping_the_rest = false;
-
-        for index in 0..num_params as usize {
-            let param_len = self.spi.read_byte() as usize;
-
-            let end_offset = offset + param_len;
-            if !skipping_the_rest && index < offsets.len() - 1 && end_offset <= ssids.len() {
-                self.spi.read_bytes(&mut ssids[offset..end_offset]);
-                offsets[index] = offset;
-                offsets[index + 1] = end_offset;
-                offset = end_offset;
-                saved_params = index + 1;
-            } else {
-                skipping_the_rest = true;
-                self.spi.skip_bytes(param_len);
-            }
-        }
-
-        self.esp_deselect();
-        Ok(saved_params)
-
+        self.get_response(Esp32Command::ScanNetworks, ssids, None)
     }
 
     pub fn get_channel(&mut self, idx: u8) -> Result<u8, Esp32Error> {
@@ -283,7 +304,7 @@ impl Esp32 {
         self.send_param(&[idx]);
         self.end_cmd();
 
-        self.wait_response_cmd_u8(Esp32Command::GetIdxChannel)
+        self.get_response_u8(Esp32Command::GetIdxChannel)
     }
 
     pub fn get_rssi(&mut self, idx: u8) -> Result<i32, Esp32Error> {
@@ -291,7 +312,7 @@ impl Esp32 {
         self.send_param(&[idx]);
         self.end_cmd();
 
-        self.wait_response_cmd_i32(Esp32Command::GetIdxRssi)
+        self.get_response_i32(Esp32Command::GetIdxRssi)
     }
 
     pub fn get_encryption_type(&mut self, idx: u8) -> Result<EncryptionType, Esp32Error> {
@@ -299,7 +320,7 @@ impl Esp32 {
         self.send_param(&[idx]);
         self.end_cmd();
 
-        let response = self.wait_response_cmd_u8(Esp32Command::GetIdxEnct)?;
+        let response = self.get_response_u8(Esp32Command::GetIdxEnct)?;
 
         // It sucks, but looks like there is no way to directly convert a number to an enum with
         // the same value numbers
@@ -310,7 +331,7 @@ impl Esp32 {
             7 => Ok(EncryptionType::None),
             8 => Ok(EncryptionType::Auto),
             255 => Ok(EncryptionType::Unknown),
-            _ => Err(Esp32Error::IncorrectEncryptionType)
+            _ => Err(Esp32Error::UnexpectedEncryptionType(response)),
         }
     }
 
@@ -320,17 +341,34 @@ impl Esp32 {
         self.send_param(passphrase.as_bytes());
         self.end_cmd();
 
-        let response = self.wait_response_cmd_u8(Esp32Command::SetPassphrase)?;
+        let error = self.get_response_u8(Esp32Command::SetPassphrase)?;
 
-        info!("set_passphrase {response}");
-
-        Ok(())
+        if error == 1 {
+            Ok(())
+        } else {
+            Err(Esp32Error::ErrorCode(error))
+        }
     }
 
-    pub fn get_conn_status(&mut self) -> Result<u8, Esp32Error> {
+    pub fn get_conn_status(&mut self) -> Result<ConnectionStatus, Esp32Error> {
         self.start_cmd(Esp32Command::GetConnStatus, 0);
         self.end_cmd();
 
-        self.wait_response_cmd_u8(Esp32Command::GetConnStatus)
+        let status = self.get_response_u8(Esp32Command::GetConnStatus)?;
+
+        match status {
+            0 => Ok(ConnectionStatus::Idle),
+            1 => Ok(ConnectionStatus::NoSsidAvail),
+            2 => Ok(ConnectionStatus::ScanCompleted),
+            3 => Ok(ConnectionStatus::Connected),
+            4 => Ok(ConnectionStatus::ConnectFailed),
+            5 => Ok(ConnectionStatus::ConnectionLost),
+            6 => Ok(ConnectionStatus::Disconnected),
+            7 => Ok(ConnectionStatus::ApListening),
+            8 => Ok(ConnectionStatus::ApConnected),
+            9 => Ok(ConnectionStatus::ApFailed),
+            255 => Ok(ConnectionStatus::NoShield),
+            _ => Err(Esp32Error::UnexpectedStatus(status)),
+        }
     }
 }

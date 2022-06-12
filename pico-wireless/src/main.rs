@@ -8,11 +8,13 @@
 use embedded_hal::digital::v2::OutputPin;
 use embedded_time::fixed_point::FixedPoint as _;
 use log::info;
-use rp2040_hal as hal;
-use rp2040_hal::{clocks::Clock as _, gpio, pac, sio::Sio, watchdog::Watchdog};
+use rp2040_hal::{self as hal, clocks::Clock as _, gpio, pac, sio::Sio, watchdog::Watchdog};
 
 mod blocking_spi;
+mod buffer;
 mod pico_wireless;
+
+use buffer::{Buffer, GenBuffer};
 
 #[link_section = ".boot2"]
 #[used]
@@ -82,8 +84,6 @@ fn main() -> ! {
     );
     let mut led_pin = pins.gpio25.into_push_pull_output();
 
-    let button_a = pico_wireless::ButtonA::new(pins.gpio12);
-
     let cs = pins.gpio7.into_push_pull_output();
     let gpio2 = pins.gpio2.into_push_pull_output();
     let resetn = pins.gpio11.into_push_pull_output();
@@ -105,37 +105,32 @@ fn main() -> ! {
         clocks.system_clock.freq().integer(),
     );
 
-    esp32.analog_write(ESP_LED_G, 0).unwrap();
-
     show_networks(&mut esp32);
+    esp32.wifi_set_passphrase("", "").unwrap();
 
     loop {
         led_pin.set_high().unwrap();
         esp32.analog_write(ESP_LED_R, 255).unwrap();
         esp32.analog_write(ESP_LED_B, 0).unwrap();
-        info!("On {}", button_a.pressed());
         delay.delay_ms(500);
 
         let status = esp32.get_conn_status().unwrap();
-        info!("status {status}");
+        info!("Status: {status:?}");
 
         led_pin.set_low().unwrap();
         esp32.analog_write(ESP_LED_R, 0).unwrap();
         esp32.analog_write(ESP_LED_B, 255).unwrap();
-        info!("Off {}", button_a.pressed());
         delay.delay_ms(500);
     }
 }
 
 fn show_networks(esp32: &mut pico_wireless::Esp32) {
-    let mut data = [0; 256];
-    let mut offsets = [0; 16];
+    let mut buffer: Buffer<256, 17> = Buffer::new();
+    esp32.scan_networks(&mut buffer).unwrap();
+    info!("Found {} networks:", buffer.len());
 
-    let n = esp32.scan_networks(&mut data, &mut offsets).unwrap();
-    info!("SSIDs:");
-
-    for i in 0..n {
-        let ssid = core::str::from_utf8(&data[offsets[i]..offsets[i+1]]).unwrap();
+    for i in 0..buffer.len() {
+        let ssid = buffer.field_as_str(i).unwrap();
         let channel = esp32.get_channel(i as u8).unwrap();
         let rssi = esp32.get_rssi(i as u8).unwrap();
         let enc = esp32.get_encryption_type(i as u8).unwrap();
@@ -143,6 +138,4 @@ fn show_networks(esp32: &mut pico_wireless::Esp32) {
     }
 
     info!("");
-
-    esp32.wifi_set_passphrase("", "").unwrap();
 }
