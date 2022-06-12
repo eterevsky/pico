@@ -4,4 +4,5 @@ members = [
     "blink",
     "pico-usb-console",
     "pico-wireless",
+    "udp-listener",
 ]

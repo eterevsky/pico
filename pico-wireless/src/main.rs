@@ -11,7 +11,7 @@ mod buffer;
 mod pico_wireless;
 
 use buffer::{Buffer, GenBuffer};
-use pico_wireless::ConnectionStatus;
+use pico_wireless::{ConnectionStatus, IpV4, ProtocolMode};
 
 #[link_section = ".boot2"]
 #[used]
@@ -105,6 +105,8 @@ fn main() -> ! {
     show_networks(&mut esp32);
     esp32.wifi_set_passphrase("", "").unwrap();
 
+    let mut sock = None;
+
     loop {
         led_pin.set_high().unwrap();
         esp32.analog_write(ESP_LED_R, 255).unwrap();
@@ -115,6 +117,24 @@ fn main() -> ! {
         if status == ConnectionStatus::Connected {
             let (ip, mask, gateway) = esp32.get_network_data().unwrap();
             info!("IP {ip} Mask {mask} GW {gateway}");
+
+            if sock.is_none() {
+                sock = Some(esp32.get_socket().unwrap());
+            }
+
+            esp32
+                .start_client(
+                    IpV4::from_slice(&[192, 168, 0, 17]),
+                    34254,
+                    sock.unwrap(),
+                    ProtocolMode::Udp,
+                )
+                .unwrap();
+            esp32
+                .insert_data_buf(sock.unwrap(), "Hello".as_bytes())
+                .unwrap();
+            esp32.send_data_udp(sock.unwrap()).unwrap();
+            info!("Sent");
         } else {
             info!("Status: {status:?}");
         }

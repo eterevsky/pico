@@ -72,10 +72,15 @@ enum Esp32Command {
     GetConnStatus = 0x20,
     GetIpAddr = 0x21,
     ScanNetworks = 0x27,
+    StartClientTcp = 0x2d,
+    StopClientTcp = 0x2e,
     GetIdxRssi = 0x32,
     GetIdxEnct = 0x33,
+    SendDataUdp = 0x39,
     GetIdxBssid = 0x3c,
     GetIdxChannel = 0x3d,
+    GetSocket = 0x3f,
+    InsertDataBuf = 0x46,
     SetAnalogWrite = 0x52,
 }
 
@@ -106,14 +111,28 @@ pub enum ConnectionStatus {
     NoShield = 255,
 }
 
+#[repr(u8)]
+#[derive(Clone, Copy, Debug)]
+pub enum ProtocolMode {
+    Tcp = 0,
+    Udp = 1,
+    Tls = 2,
+    UdpMulticast = 3,
+    TlsBearSsl = 4,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct IpV4([u8; 4]);
 
 impl IpV4 {
-    fn from_slice(data: &[u8]) -> Self {
+    pub fn from_slice(data: &[u8]) -> Self {
         let mut addr = [0; 4];
         addr.clone_from_slice(data);
         IpV4(addr)
+    }
+
+    fn as_bytes(&self) -> &[u8] {
+        &self.0
     }
 }
 
@@ -122,6 +141,9 @@ impl fmt::Display for IpV4 {
         write!(f, "{}.{}.{}.{}", self.0[0], self.0[1], self.0[2], self.0[3])
     }
 }
+
+#[derive(Clone, Copy, Debug)]
+pub struct Socket(u8);
 
 pub struct Esp32 {
     spi: Spi<pac::SPI0>,
@@ -199,7 +221,6 @@ impl Esp32 {
     }
 
     fn wait_for_byte(&mut self, expected: u8) -> Result<(), Esp32Error> {
-        // info!("wait_for_byte({expected})");
         for _ in 0..BYTE_TIMEOUT {
             let b = self.spi.read_byte();
             if b == expected {
@@ -222,6 +243,13 @@ impl Esp32 {
     fn send_param(&mut self, param: &[u8]) {
         assert!(param.len() < 256);
         self.spi.write_byte(param.len() as u8);
+        self.spi.write(param);
+        self.command_length += param.len() as u32 + 1;
+    }
+
+    fn send_buffer(&mut self, param: &[u8]) {
+        self.spi.write_byte((param.len() / 256) as u8);
+        self.spi.write_byte((param.len() % 256) as u8);
         self.spi.write(param);
         self.command_length += param.len() as u32 + 1;
     }
@@ -294,20 +322,24 @@ impl Esp32 {
             .map_err(|e| Esp32Error::ResponseBufferError(e))
     }
 
+    fn check_response_status(&mut self, command: Esp32Command) -> Result<(), Esp32Error> {
+        let status = self.get_response_u8(command)?;
+
+        if status == 1 {
+            Ok(())
+        } else {
+            Err(Esp32Error::ErrorCode(status))
+        }
+
+    }
+
     pub fn analog_write(&mut self, pin: u8, value: u8) -> Result<(), Esp32Error> {
         self.start_cmd(Esp32Command::SetAnalogWrite, 2);
         self.send_param(&[pin]);
         self.send_param(&[value]);
-
         self.end_cmd();
 
-        let error = self.get_response_u8(Esp32Command::SetAnalogWrite)?;
-
-        if error == 1 {
-            Ok(())
-        } else {
-            Err(Esp32Error::ErrorCode(error))
-        }
+        self.check_response_status(Esp32Command::SetAnalogWrite)
     }
 
     pub fn scan_networks(&mut self, ssids: &mut dyn GenBuffer) -> Result<(), Esp32Error> {
@@ -359,13 +391,7 @@ impl Esp32 {
         self.send_param(passphrase.as_bytes());
         self.end_cmd();
 
-        let error = self.get_response_u8(Esp32Command::SetPassphrase)?;
-
-        if error == 1 {
-            Ok(())
-        } else {
-            Err(Esp32Error::ErrorCode(error))
-        }
+        self.check_response_status(Esp32Command::SetPassphrase)
     }
 
     pub fn get_conn_status(&mut self) -> Result<ConnectionStatus, Esp32Error> {
@@ -412,5 +438,48 @@ impl Esp32 {
             IpV4::from_slice(mask_slice),
             IpV4::from_slice(gateway_slice),
         ))
+    }
+
+    pub fn get_socket(&mut self) -> Result<Socket, Esp32Error> {
+        self.start_cmd(Esp32Command::GetSocket, 0);
+        self.end_cmd();
+
+        let socket_id = self.get_response_u8(Esp32Command::GetSocket)?;
+
+        Ok(Socket(socket_id))
+    }
+
+    pub fn start_client(
+        &mut self,
+        ip: IpV4,
+        port: u16,
+        sock: Socket,
+        mode: ProtocolMode,
+    ) -> Result<(), Esp32Error> {
+        self.start_cmd(Esp32Command::StartClientTcp, 4);
+        self.send_param(ip.as_bytes());
+        self.send_param(&port.to_ne_bytes());
+        self.send_param(&[sock.0]);
+        self.send_param(&[mode as u8]);
+        self.end_cmd();
+
+        self.check_response_status(Esp32Command::StartClientTcp)
+    }
+
+    pub fn insert_data_buf(&mut self, sock: Socket, buf: &[u8]) -> Result<(), Esp32Error> {
+        self.start_cmd(Esp32Command::InsertDataBuf, 2);
+        self.send_param(&[sock.0]);
+        self.send_buffer(buf);
+        self.end_cmd();
+
+        self.check_response_status(Esp32Command::InsertDataBuf)
+    }
+
+    pub fn send_data_udp(&mut self, sock: Socket) -> Result<(), Esp32Error> {
+        self.start_cmd(Esp32Command::SendDataUdp, 1);
+        self.send_param(&[sock.0]);
+        self.end_cmd();
+
+        self.check_response_status(Esp32Command::SendDataUdp)
     }
 }
