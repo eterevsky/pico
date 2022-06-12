@@ -28,6 +28,7 @@ impl<const SIZE: usize, const MAX_LEN_P1: usize> Buffer<SIZE, MAX_LEN_P1> {
         buf
     }
 
+
     fn get_field_fixed_size<const FIELD_SIZE: usize>(
         &self,
         index: usize,
@@ -53,6 +54,8 @@ pub trait GenBuffer {
     fn field_as_i32(&self, index: usize) -> Result<i32, BufferError>;
 
     fn field_as_str(&self, index: usize) -> Result<&str, BufferError>;
+
+    fn field_as_slice_fixed(&self, index: usize, expected_size: usize) -> Result<&[u8], BufferError>;
 
     fn len(&self) -> usize;
 }
@@ -90,6 +93,17 @@ impl<const SIZE: usize, const MAX_LEN_P1: usize> GenBuffer for Buffer<SIZE, MAX_
 
         core::str::from_utf8(&self.data[self.offsets[index]..self.offsets[index + 1]])
             .map_err(|e| BufferError::Utf8Error(e))
+    }
+
+    fn field_as_slice_fixed(&self, index: usize, expected_size: usize) -> Result<&[u8], BufferError> {
+        if index >= self.len {
+            return Err(BufferError::WrongFieldIndex);
+        }
+        if self.offsets[index + 1] - self.offsets[index] == expected_size {
+            Ok(&self.data[self.offsets[index] .. self.offsets[index + 1]])
+        } else {
+            Err(BufferError::WrongFieldSize)
+        }
     }
 
     fn len(&self) -> usize {

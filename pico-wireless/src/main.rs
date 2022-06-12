@@ -1,7 +1,3 @@
-//! Blinks the LED on a Pico board and log to USB console
-//!
-//! This will blink an LED attached to GP25, which is the pin the Pico uses for the on-board LED.
-//! USB console can be used with write!() macro and is also used for panic! error message.
 #![no_std]
 #![no_main]
 
@@ -15,6 +11,7 @@ mod buffer;
 mod pico_wireless;
 
 use buffer::{Buffer, GenBuffer};
+use pico_wireless::ConnectionStatus;
 
 #[link_section = ".boot2"]
 #[used]
@@ -115,7 +112,12 @@ fn main() -> ! {
         delay.delay_ms(500);
 
         let status = esp32.get_conn_status().unwrap();
-        info!("Status: {status:?}");
+        if status == ConnectionStatus::Connected {
+            let (ip, mask, gateway) = esp32.get_network_data().unwrap();
+            info!("IP {ip} Mask {mask} GW {gateway}");
+        } else {
+            info!("Status: {status:?}");
+        }
 
         led_pin.set_low().unwrap();
         esp32.analog_write(ESP_LED_R, 0).unwrap();

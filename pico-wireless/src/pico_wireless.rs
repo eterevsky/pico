@@ -1,7 +1,5 @@
+use core::fmt;
 use embedded_hal::digital::v2::{InputPin as _, OutputPin as _};
-// use embedded_time::{fixed_point::FixedPoint as _, rate::Extensions as _};
-use crate::blocking_spi::Spi;
-use crate::buffer::{Buffer, BufferError, GenBuffer};
 use log::info;
 use rp2040_hal::{
     gpio::{
@@ -12,6 +10,9 @@ use rp2040_hal::{
     },
     pac,
 };
+
+use crate::blocking_spi::Spi;
+use crate::buffer::{Buffer, BufferError, GenBuffer};
 
 const START_CMD: u8 = 0xE0;
 const END_CMD: u8 = 0xEE;
@@ -90,7 +91,7 @@ pub enum EncryptionType {
 }
 
 #[repr(u8)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ConnectionStatus {
     Idle = 0,
     NoSsidAvail = 1,
@@ -103,6 +104,23 @@ pub enum ConnectionStatus {
     ApConnected = 8,
     ApFailed = 9,
     NoShield = 255,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct IpV4([u8; 4]);
+
+impl IpV4 {
+    fn from_slice(data: &[u8]) -> Self {
+        let mut addr = [0; 4];
+        addr.clone_from_slice(data);
+        IpV4(addr)
+    }
+}
+
+impl fmt::Display for IpV4 {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}.{}.{}.{}", self.0[0], self.0[1], self.0[2], self.0[3])
+    }
 }
 
 pub struct Esp32 {
@@ -370,5 +388,29 @@ impl Esp32 {
             255 => Ok(ConnectionStatus::NoShield),
             _ => Err(Esp32Error::UnexpectedStatus(status)),
         }
+    }
+
+    pub fn get_network_data(&mut self) -> Result<(IpV4, IpV4, IpV4), Esp32Error> {
+        self.start_cmd(Esp32Command::GetIpAddr, 0);
+        self.end_cmd();
+
+        let mut buffer = Buffer::<12, 4>::new();
+        self.get_response(Esp32Command::GetIpAddr, &mut buffer, Some(3))?;
+
+        let addr_slice = buffer
+            .field_as_slice_fixed(0, 4)
+            .map_err(|e| Esp32Error::ResponseBufferError(e))?;
+        let mask_slice = buffer
+            .field_as_slice_fixed(1, 4)
+            .map_err(|e| Esp32Error::ResponseBufferError(e))?;
+        let gateway_slice = buffer
+            .field_as_slice_fixed(2, 4)
+            .map_err(|e| Esp32Error::ResponseBufferError(e))?;
+
+        Ok((
+            IpV4::from_slice(addr_slice),
+            IpV4::from_slice(mask_slice),
+            IpV4::from_slice(gateway_slice),
+        ))
     }
 }
