@@ -2,6 +2,7 @@
 
 members = [
     "blink",
+    "blink-pac",
     "pico-usb-console",
     "pico-wireless",
     "udp-listener",
